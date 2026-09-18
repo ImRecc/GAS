@@ -1,0 +1,16 @@
+# Binaries and Intermediates
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Visual Studio / IDE files
+.vs/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+
+# Large asset folders to ignore if add heavy textures later
+# Content/HeavyAssets/
