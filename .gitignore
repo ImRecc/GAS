@@ -14,3 +14,5 @@ Saved/
 
 # Large asset folders to ignore if add heavy textures later
 # Content/HeavyAssets/
+/Content/LP_LiteWeapons_JC
+/Content/MagmaSciFiPistol
