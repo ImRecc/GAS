@@ -1,6 +1,6 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "5.7",
+	"EngineAssociation": "{F27C9BAE-45A8-C60B-D697-19918A728B2A}",
 	"Category": "",
 	"Description": "",
 	"Modules": [
@@ -24,6 +24,14 @@
 		},
 		{
 			"Name": "GameplayAbilities",
+			"Enabled": true
+		},
+		{
+			"Name": "ModelContextProtocol",
+			"Enabled": true
+		},
+		{
+			"Name": "AllToolsets",
 			"Enabled": true
 		}
 	]
