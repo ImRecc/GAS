@@ -1,3 +1,11 @@
+### handSwayRotatorV2:
+```
+TargetPitch=Clamp(ΔPitch⋅(−1.5⋅Klook​)+600.0Vlocal.x​​⋅(−2.5⋅Kside​),−8∘,8∘)
+TargetYaw=Clamp(ΔYaw⋅(−1.5⋅Klook​)+600.0Vlocal.y​​⋅(1.5⋅Kside​),−10∘,10∘)
+TargetRoll=Clamp(600.0Vlocal.y​​⋅(−3.0⋅Kside​)+ΔYaw⋅(−0.5⋅Klook​),−6∘,6∘)
+CurrentRotatort​=RInterpTo(CurrentRotatort−1​,TargetRot,Δt,InterpSpeed=12.0)
+```
+
 # (UE5 + GAS)
 
 ---
