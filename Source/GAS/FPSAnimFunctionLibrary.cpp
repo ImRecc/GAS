@@ -1,6 +1,16 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FPSAnimFunctionLibrary.h"
+#include "DoomAttributeSet.h"
+#include "Engine/World.h"
+#include "Engine/Engine.h"
+#include "Components/PrimitiveComponent.h"
+#include "GameFramework/Actor.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
+#include "GameplayEffect.h"
+#include "GameplayTagsModule.h"
+#include "Kismet/GameplayStatics.h"
 
 void UFPSAnimFunctionLibrary::CFLF_calLookDragTarget(
 	const FRotator& CurrentAimRot,
@@ -51,8 +61,8 @@ void UFPSAnimFunctionLibrary::CFLF_calMoveImpulseTarget(
 	FVector& OutImpulseTrans)
 {
 	// 步骤 1：防除零保护与局部线性加速度计算（单位：cm/s²）
-	// 【核心设计】：由于使用的是局部加速度 (Current - Last) / dt，
-	// 当玩家按住 W 达到最大速度匀速奔跑时，加速度为 0，手部自然回中，彻底根治“持续按 W 手臂卡死偏角”的问题！
+	// 【核心设计】：由于使用的是局部加速度 (Current - Last) / dt；
+	// 当玩家按住 W 达到最大速度匀速奔跑时，加速度为 0，手部自然回中，彻底根治“持续按 W 手臂卡死偏角”的问题。
 	const float SafeDeltaTime = FMath::Max(DeltaTime, 0.0001f);
 	const FVector RawAccel = (CurrentLocalVel - LastLocalVel) / SafeDeltaTime;
 
@@ -208,8 +218,167 @@ void UFPSAnimFunctionLibrary::CFLF_solveDualSpringSway(
 	);
 
 	// 步骤 6：100% 作用于 spine_05（单骨骼刚体化驱动）
-	// 根据你的实测确认与当前架构，直接将全额旋转与位移赋予 spine_05。
+	// 根据实测确认与当前架构，直接将全额旋转与位移赋予 spine_05；
 	// 不再拆分手腕与躯干变量，保证右手护木 Socket 与左手 IK 绝对死锁不脱手！
 	OutTotalRot = FRotator(NewRotVec.X, NewRotVec.Y, NewRotVec.Z);
 	OutTotalTrans = NewTransVec;
+}
+
+void UFPSAnimFunctionLibrary::CFLF_SpawnScatteredPickups(
+	const UObject* WorldContextObject,
+	TSubclassOf<AActor> PickupClass,
+	FVector CenterLocation,
+	int32 Count,
+	float ScatterRadius,
+	float UpwardImpulse,
+	float OutwardImpulse,
+	float RandomAngularImpulse)
+{
+	if (!WorldContextObject || !PickupClass || Count <= 0)
+	{
+		return;
+	}
+
+	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+	if (!World)
+	{
+		return;
+	}
+
+	// 智能位置兜底：若传入的坐标为 (0,0,0)（即蓝图未连线），自动使用调用者 Actor 自身坐标，杜绝飞到地图原点！
+	FVector ActualCenter = CenterLocation;
+	if (ActualCenter.IsNearlyZero(1.0f))
+	{
+		if (const AActor* ContextActor = Cast<AActor>(WorldContextObject))
+		{
+			ActualCenter = ContextActor->GetActorLocation();
+		}
+	}
+
+	// 随机初始朝向，避免多波次掉落角度完全一致
+	const float BaseAngleDeg = FMath::FRandRange(0.0f, 360.0f);
+	const float StepAngleDeg = 360.0f / static_cast<float>(Count);
+
+	for (int32 i = 0; i < Count; ++i)
+	{
+		// 环形等角度错位分布 + 微随机扰动（防堆叠）
+		const float AngleDeg = BaseAngleDeg + StepAngleDeg * static_cast<float>(i) + FMath::FRandRange(-12.0f, 12.0f);
+		const float AngleRad = FMath::DegreesToRadians(AngleDeg);
+
+		const FVector HorizontalDir(FMath::Cos(AngleRad), FMath::Sin(AngleRad), 0.0f);
+		const float ActualRadius = ScatterRadius + FMath::FRandRange(-5.0f, 15.0f);
+		const FVector SpawnLoc = ActualCenter + HorizontalDir * ActualRadius + FVector(0.0f, 0.0f, 25.0f);
+		const FRotator SpawnRot(0.0f, AngleDeg, 0.0f);
+
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		AActor* SpawnedPickup = World->SpawnActor<AActor>(PickupClass, SpawnLoc, SpawnRot, SpawnParams);
+		if (!SpawnedPickup)
+		{
+			continue;
+		}
+
+		// 寻找物理碰撞组件施加动量喷射
+		UPrimitiveComponent* PrimComp = Cast<UPrimitiveComponent>(SpawnedPickup->GetRootComponent());
+		if (!PrimComp)
+		{
+			PrimComp = SpawnedPickup->FindComponentByClass<UPrimitiveComponent>();
+		}
+
+		if (PrimComp && PrimComp->IsSimulatingPhysics())
+		{
+			// 径向向外冲量 + 向上抛射冲量（bVelChange=true 保证不受 mass 差异影响）
+			const FVector Impulse = HorizontalDir * OutwardImpulse + FVector(0.0f, 0.0f, UpwardImpulse + FMath::FRandRange(-25.0f, 25.0f));
+			PrimComp->AddImpulse(Impulse, NAME_None, true);
+
+			// 随机三轴角冲量翻滚
+			const FVector RandomSpin(
+				FMath::FRandRange(-1.0f, 1.0f),
+				FMath::FRandRange(-1.0f, 1.0f),
+				FMath::FRandRange(-1.0f, 1.0f)
+			);
+			PrimComp->AddAngularImpulseInDegrees(RandomSpin.GetSafeNormal() * RandomAngularImpulse, NAME_None, true);
+		}
+	}
+}
+
+bool UFPSAnimFunctionLibrary::CFLF_ApplyDamageToTarget(
+	AActor* TargetActor,
+	float DamageAmount,
+	AActor* InstigatorActor,
+	TSubclassOf<UGameplayEffect> DamageGEClass)
+{
+	if (!TargetActor || DamageAmount <= 0.0f)
+	{
+		return false;
+	}
+
+	// 1. 尝试通过 GAS ASC 施加伤害
+	UAbilitySystemComponent* TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetActor);
+	if (TargetASC)
+	{
+		TSubclassOf<UGameplayEffect> EffectiveGEClass = DamageGEClass;
+		if (!EffectiveGEClass)
+		{
+			// 自动加载项目中已配置好的标准 GE_Damage
+			EffectiveGEClass = LoadClass<UGameplayEffect>(nullptr, TEXT("/Game/bps/gameplayEffect-Ability/GE_Damage.GE_Damage_C"));
+		}
+
+		if (EffectiveGEClass)
+		{
+			FGameplayEffectContextHandle Context = TargetASC->MakeEffectContext();
+			Context.AddInstigator(InstigatorActor, InstigatorActor);
+
+			FGameplayEffectSpecHandle SpecHandle = TargetASC->MakeOutgoingSpec(EffectiveGEClass, 1.0f, Context);
+			if (SpecHandle.IsValid())
+			{
+				FGameplayTag DamageTag = FGameplayTag::RequestGameplayTag(FName("Data.Damage"), false);
+				if (DamageTag.IsValid())
+				{
+					// 注入负数伤害（GE_Damage 配置为扣除生命）
+					SpecHandle.Data->SetSetByCallerMagnitude(DamageTag, -FMath::Abs(DamageAmount));
+				}
+
+				TargetASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+
+				// 屏幕打印调试信息，让命中与扣血一目了然
+				if (GEngine)
+				{
+					float CurrentHp = 0.0f;
+					float MaxHp = 0.0f;
+					if (const UDoomAttributeSet* DoomAttr = Cast<UDoomAttributeSet>(TargetASC->GetAttributeSet(UDoomAttributeSet::StaticClass())))
+					{
+						CurrentHp = DoomAttr->GetHealth();
+						MaxHp = DoomAttr->GetMaxHealth();
+					}
+
+					if (CurrentHp <= 0.0f)
+					{
+						FString KillMsg = FString::Printf(TEXT("☠️ [KILL] %s 被彻底消灭！生命归零 (0.0 / %.1f)"),
+							*TargetActor->GetName(), MaxHp);
+						GEngine->AddOnScreenDebugMessage(-1, 3.5f, FColor::Red, KillMsg);
+					}
+					else
+					{
+						FString HitMsg = FString::Printf(TEXT("🎯 [HIT] %s 受到 %.1f 伤害 | 剩余生命: %.1f / %.1f"),
+							*TargetActor->GetName(), DamageAmount, CurrentHp, MaxHp);
+						GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Green, HitMsg);
+					}
+				}
+				return true;
+			}
+		}
+	}
+
+	// 2. 传统通用 Fallback：对非 GAS 对象（普通假人、可破坏物等）调用引擎原生伤害
+	AController* InstigatorController = InstigatorActor ? InstigatorActor->GetInstigatorController() : nullptr;
+	UGameplayStatics::ApplyDamage(TargetActor, DamageAmount, InstigatorController, InstigatorActor, nullptr);
+
+	if (GEngine)
+	{
+		FString Msg = FString::Printf(TEXT("🎯 [HIT-Generic] %s 受到 %.1f 原生伤害"), *TargetActor->GetName(), DamageAmount);
+		GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Yellow, Msg);
+	}
+	return true;
 }

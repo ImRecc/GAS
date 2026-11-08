@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "AttributeSet.h"
@@ -15,11 +15,12 @@
 struct FGameplayEffectModCallbackData;
 
 UCLASS()
-class UDoomAttributeSet : public UAttributeSet
+class GAS_API UDoomAttributeSet : public UAttributeSet
 {
 	GENERATED_BODY()
 
 public:
+	UDoomAttributeSet();
 
 	// --- Health ---
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes")
