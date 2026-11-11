@@ -12,6 +12,19 @@
 #include "GameplayTagsModule.h"
 #include "Kismet/GameplayStatics.h"
 
+// ============================================================================
+// 内部常量：用于从 CFLF_calMoveImpulseTarget 向 CFLF_solveDualSpringSway 
+// 无损传递单帧落地动量冲击的编码阈值（无需修改蓝图引脚签名）
+// ============================================================================
+namespace HandSwayInternal
+{
+	constexpr float LANDING_SIGNAL_OFFSET = -1000.0f;
+	constexpr float LANDING_SIGNAL_THRESHOLD = -500.0f;
+}
+
+// ----------------------------------------------------------------------------
+// 1. 视角转动滞后目标 (已对齐 BCS_ComponentSpace: Roll=上下俯仰, Pitch=侧翻, Yaw=左右横摆)
+// ----------------------------------------------------------------------------
 void UFPSAnimFunctionLibrary::CFLF_calLookDragTarget(
 	const FRotator& CurrentAimRot,
 	const FRotator& LastAimRot,
@@ -21,36 +34,29 @@ void UFPSAnimFunctionLibrary::CFLF_calLookDragTarget(
 	FRotator& OutLookRot,
 	FVector& OutLookTrans)
 {
-	// 步骤 1：计算两帧之间的旋转角度差（自动处理 360 度跨越回绕，保证差值在 [-180, 180] 之间）
+	const float SafeDeltaTime = FMath::Max(DeltaTime, 0.0001f);
 	const FRotator DeltaRot = (CurrentAimRot - LastAimRot).GetNormalized();
 
-	// 步骤 2：转化为物理角速度（度/秒，deg/sec）
-	// 防除零保护：限制 DeltaTime 最小为 0.0001 秒
-	const float SafeDeltaTime = FMath::Max(DeltaTime, 0.0001f);
-	const float SafeMaxSpeed = FMath::Max(MaxAngularSpeed, 0.0f);
+	const float PitchSpeed = FMath::Clamp(DeltaRot.Pitch / SafeDeltaTime, -MaxAngularSpeed, MaxAngularSpeed);
+	const float YawSpeed   = FMath::Clamp(DeltaRot.Yaw   / SafeDeltaTime, -MaxAngularSpeed, MaxAngularSpeed);
 
-	// 计算每秒俯仰（Pitch）与偏航（Yaw）角速度，并钳制在最大安全速度内，防止剧烈卡顿或切屏引起的突变
-	const float PitchSpeed = FMath::Clamp(DeltaRot.Pitch / SafeDeltaTime, -SafeMaxSpeed, SafeMaxSpeed);
-	const float YawSpeed   = FMath::Clamp(DeltaRot.Yaw   / SafeDeltaTime, -SafeMaxSpeed, SafeMaxSpeed);
+	// Component Space 旋转映射：
+	// - 鼠标上下看 (PitchSpeed) -> 驱动绕 X 轴旋转 (Roll: 枪口上下滞后俯仰)
+	// - 鼠标左右看 (YawSpeed)   -> 驱动绕 Z 轴旋转 (Yaw: 枪口左右滞后横摆，露枪身侧面) 
+	//                              及绕 Y 轴旋转 (Pitch: 伴随枪身侧倾翻滚)
+	OutLookRot.Roll  = FMath::Clamp(PitchSpeed * (-0.022f * LookSwayStrength), -8.0f,  8.0f);
+	OutLookRot.Pitch = FMath::Clamp(YawSpeed   * (-0.015f * LookSwayStrength), -6.0f,  6.0f);
+	OutLookRot.Yaw   = FMath::Clamp(YawSpeed   * (-0.028f * LookSwayStrength), -12.0f, 12.0f);
 
-	// 步骤 3：映射到手部旋转滞后量（OutLookRot）
-	// - 系数说明：-0.025 与 -0.012 是将物理速度映射为视觉柔和滞后的基础经验系数
-	// - 负号代表“惯性反向”，即视线向正方向转，武器向反方向滞后
-	// - 乘以武器配置的 LookSwayStrength（重武器系数大，手枪系数小）
-	// - 最后进行角度限幅（Clamp），保证手部绝对不穿模穿屏
-	OutLookRot.Pitch = FMath::Clamp(PitchSpeed * (-0.025f * LookSwayStrength), -8.0f, 8.0f);
-	OutLookRot.Yaw   = FMath::Clamp(YawSpeed   * (-0.025f * LookSwayStrength), -10.0f, 10.0f);
-	OutLookRot.Roll  = FMath::Clamp(YawSpeed   * (-0.012f * LookSwayStrength), -5.0f, 5.0f);
-
-	// 步骤 4：映射到手部微平移量（OutLookTrans）
-	// - X 轴（前后）：视线旋转不直接产生明显的前后缩放位移，保持 0.0
-	// - Y 轴（左右）：向右转头时（YawSpeed > 0），手臂惯性向左滑移（负系数），限幅 [-2.0, 2.0] cm
-	// - Z 轴（上下）：向上甩枪时（PitchSpeed > 0），力臂几何抬升（正系数），限幅 [-1.5, 1.5] cm
-	OutLookTrans.X = 0.0f;
-	OutLookTrans.Y = FMath::Clamp(YawSpeed   * (-0.008f * LookSwayStrength), -2.0f, 2.0f);
-	OutLookTrans.Z = FMath::Clamp(PitchSpeed * (0.006f  * LookSwayStrength), -1.5f, 1.5f);
+	// Component Space 位移映射 (X=左右, Y=前后, Z=上下)
+	OutLookTrans.X = FMath::Clamp(YawSpeed   * (-0.008f * LookSwayStrength), -2.5f, 2.5f);
+	OutLookTrans.Y = 0.0f;
+	OutLookTrans.Z = FMath::Clamp(PitchSpeed * ( 0.006f * LookSwayStrength), -2.0f, 2.0f);
 }
 
+// ----------------------------------------------------------------------------
+// 2. 移动加减速冲量与跳跃/坠地感知 (已对齐 BCS_ComponentSpace + 内置坠地动量信号)
+// ----------------------------------------------------------------------------
 void UFPSAnimFunctionLibrary::CFLF_calMoveImpulseTarget(
 	const FVector& CurrentLocalVel,
 	const FVector& LastLocalVel,
@@ -60,47 +66,66 @@ void UFPSAnimFunctionLibrary::CFLF_calMoveImpulseTarget(
 	FRotator& OutImpulseRot,
 	FVector& OutImpulseTrans)
 {
-	// 步骤 1：防除零保护与局部线性加速度计算（单位：cm/s²）
-	// 【核心设计】：由于使用的是局部加速度 (Current - Last) / dt；
-	// 当玩家按住 W 达到最大速度匀速奔跑时，加速度为 0，手部自然回中，彻底根治“持续按 W 手臂卡死偏角”的问题。
 	const float SafeDeltaTime = FMath::Max(DeltaTime, 0.0001f);
-	const FVector RawAccel = (CurrentLocalVel - LastLocalVel) / SafeDeltaTime;
 
-	// 步骤 2：对局部加速度矢量模长限幅（4000 cm/s²），防止传送、瞬移或掉帧导致数值尖峰
-	const FVector ClampedAccel = RawAccel.GetClampedToMaxSize(4000.0f);
+	// 注意：仅对水平加速度 (X, Y) 做限幅，避免落地瞬间巨大的 Z 轴速度差把水平加速度模长稀释归零！
+	const FVector2D RawAccel2D(
+		(CurrentLocalVel.X - LastLocalVel.X) / SafeDeltaTime,
+		(CurrentLocalVel.Y - LastLocalVel.Y) / SafeDeltaTime
+	);
+	const FVector2D ClampedAccel2D = RawAccel2D.GetClampedToMaxSize(4000.0f);
 
-	// 步骤 3：水平加减速惯性映射（以 2000 cm/s² 标准满速起步加速度为基准归一化）
-	const float NormalizedAccelX = ClampedAccel.X / 2000.0f;
-	const float NormalizedAccelY = ClampedAccel.Y / 2000.0f;
+	// Actor Space 输入：X 为前后 (W/S)，Y 为左右 (A/D)
+	const float NormAccelForward = ClampedAccel2D.X / 2000.0f; // W/S 起停
+	const float NormAccelRight   = ClampedAccel2D.Y / 2000.0f; // A/D 横移折返
 
-	// - X 轴（前进/后退）：起跑（+X 加速）手部后缩沉降；急停（-X 减速）手部受惯性前冲
-	const float AccelPitch  = NormalizedAccelX * (-3.5f * SideSwayStrength);
-	const float AccelTransX = NormalizedAccelX * (-1.8f * SideSwayStrength);
+	// --- A/D 左右横移 (NormAccelRight)：高占比展现枪身两侧 (Yaw 横摆 + Pitch 侧翻)，绝不上下摆 ---
+	const float StrafeYaw    = NormAccelRight * (-0.2f * SideSwayStrength); // Z轴：水平转出枪身侧面
+	const float StrafePitch  = NormAccelRight * (-1.0f * SideSwayStrength); // Y轴：枪身向移动反方向侧翻
+	const float StrafeTransX = NormAccelRight * (-0.8f * SideSwayStrength); // X轴：左右平移缓冲
 
-	// - Y 轴（左右折返）：变向（A/D 键加速度）带来明显的横滚侧倾（Roll）与偏航转向（Yaw）
-	const float AccelRoll   = NormalizedAccelY * (-4.5f * SideSwayStrength);
-	const float AccelYaw    = NormalizedAccelY * (2.0f  * SideSwayStrength);
-	const float AccelTransY = NormalizedAccelY * (-1.5f * SideSwayStrength);
+	// --- W/S 前后起停 (NormAccelForward)：仅产生前后推拉 (Trans.Y) 与轻微枪口上下俯仰 (Roll) ---
+	const float ForwardRoll   = NormAccelForward * (-0.6f * SideSwayStrength); // X轴：起跑微低头、急停微抬头
+	const float ForwardTransY = NormAccelForward * (-0.6f * SideSwayStrength); // Y轴：起跑向后缩、急停向前冲
 
-	// 步骤 4：空中滞后与着陆冲击
-	// - 空中滞后（AirPitch）：起跳上升阶段（Vz > 0）枪口微低；下落阶段（Vz < 0）风阻使枪口微抬，限幅 [-6°, 6°]
-	const float AirPitch = bIsFalling
-		? FMath::Clamp((CurrentLocalVel.Z / 600.0f) * -4.0f, -6.0f, 6.0f)
-		: 0.0f;
+	// --- 空中抛物线 (起跳下压 -> 下落失重上浮) 与 触地瞬间重锤检测 ---
+	float VerticalRoll   = 0.0f;
+	float VerticalPitch  = 0.0f;
+	float VerticalTransZ = 0.0f;
 
-	// - 落地沉降冲击（LandTransZ）：着陆瞬间垂直产生巨大向上加速度，手部受惯性向下沉降顿挫，限幅 [-3.5, 2.0] cm
-	const float LandTransZ = FMath::Clamp((ClampedAccel.Z / 3000.0f) * -2.5f, -3.5f, 2.0f);
+	const float DeltaVz = CurrentLocalVel.Z - LastLocalVel.Z;
+	const bool bJustLanded = (!bIsFalling) && (LastLocalVel.Z < -120.0f) && (DeltaVz > 120.0f);
 
-	// 步骤 5：合成输出
-	OutImpulseRot.Pitch = AccelPitch + AirPitch;
-	OutImpulseRot.Yaw   = AccelYaw;
-	OutImpulseRot.Roll  = AccelRoll;
+	if (bIsFalling)
+	{
+		// 在空中：
+		// 1. 刚起跳时 (CurrentLocalVel.Z > 0) -> 枪往下沉 (-Z)、枪口微低头 (-Roll)
+		// 2. 空中下坠时 (CurrentLocalVel.Z < 0) -> 失重感让枪往上飘起 (+Z)、枪口微抬蓄力 (+Roll)
+		const float AirRatio = FMath::Clamp(CurrentLocalVel.Z / 600.0f, -1.5f, 1.2f);
+		VerticalRoll   = AirRatio * (-0.1f); // 起跳低头，下落抬头蓄力
+		VerticalPitch  = AirRatio * (-0.1f); // 空中伴随轻微侧倾感
+		VerticalTransZ = AirRatio * (-0.1f); // 起跳下沉，下落上浮最高约 +3.6cm
+	}
+	else if (bJustLanded)
+	{
+		// 触地瞬间：计算落地冲击强度 Ratio (范围 0.2 ~ 2.0)，通过负向特征码传递给弹簧解算器直接注入动量！
+		const float ImpactRatio = FMath::Clamp(-LastLocalVel.Z / 600.0f, 0.25f, 1.0f);
+		VerticalTransZ = HandSwayInternal::LANDING_SIGNAL_OFFSET - (ImpactRatio * 100.0f);
+	}
 
-	OutImpulseTrans.X   = AccelTransX;
-	OutImpulseTrans.Y   = AccelTransY;
-	OutImpulseTrans.Z   = LandTransZ;
+	// 组装输出 (严格按字段名赋值，杜绝 FRotator(Pitch,Yaw,Roll) 构造函数顺序混淆)
+	OutImpulseRot.Roll  = ForwardRoll + VerticalRoll;
+	OutImpulseRot.Pitch = StrafePitch + VerticalPitch;
+	OutImpulseRot.Yaw   = StrafeYaw;
+
+	OutImpulseTrans.X = StrafeTransX;
+	OutImpulseTrans.Y = ForwardTransY;
+	OutImpulseTrans.Z = VerticalTransZ;
 }
 
+// ----------------------------------------------------------------------------
+// 3. 步态 8 字形呼吸起伏 (已对齐 BCS_ComponentSpace: Roll=上下颠簸, Pitch/Yaw=左右摆动)
+// ----------------------------------------------------------------------------
 void UFPSAnimFunctionLibrary::CFLF_calWalkBobbingTarget(
 	float InWalkPhase,
 	const FVector& LocalVelocity,
@@ -114,38 +139,36 @@ void UFPSAnimFunctionLibrary::CFLF_calWalkBobbingTarget(
 	FVector& OutBobTrans,
 	bool& bOutFootstepTrigger)
 {
-	// 步骤 1：计算有效水平地面移动速度比率
-	// 移动速度低于 15 cm/s 视为静止，防止极微小输入导致的步态蠕动抖动
-	const float Speed2D = FVector2D(LocalVelocity.X, LocalVelocity.Y).Size();
 	const float SafeMaxSpeed = FMath::Max(MaxWalkSpeed, 1.0f);
+	const float Speed2D = FVector2D(LocalVelocity.X, LocalVelocity.Y).Size();
 	const float AlphaMove = (bIsMovingOnGround && Speed2D > 15.0f)
 		? FMath::Clamp(Speed2D / SafeMaxSpeed, 0.0f, 1.2f)
 		: 0.0f;
 
-	// 步骤 2：步态相位角累加（模 2π 回绕，保证相位在 [0, 2π) 之间无限平滑推进）
-	constexpr float TwoPi = 6.28318530718f;
-	const float PhaseNew = FMath::Fmod(InWalkPhase + DeltaTime * StepFrequency * AlphaMove, TwoPi);
+	const float PhaseNew = FMath::Fmod(InWalkPhase + DeltaTime * StepFrequency * AlphaMove, 6.2831853f);
 	OutWalkPhase = PhaseNew;
 
-	// 步骤 3：李萨如 8 字形波形（水平 1x 步频，垂直 2x 步频）
-	// 人类奔跑时，左右摇摆为 1 个周期（Cos(φ)），双脚交替触地导致上下颠簸为 2 个周期（Sin(2φ)）
+	// 李萨如 8 字波：横向 1x 频率，纵向 2x 频率
 	const float WaveH = FMath::Cos(PhaseNew) * AlphaMove * BobStrength;
 	const float WaveV = FMath::Sin(2.0f * PhaseNew) * AlphaMove * BobStrength;
 
-	// 步骤 4：映射为步态呼吸旋转与位移
-	OutBobRot.Pitch = WaveV * 1.2f;
-	OutBobRot.Yaw   = WaveH * 1.5f;
-	OutBobRot.Roll  = WaveH * -1.8f;
+	// 对齐 Component Space：
+	// - 纵向步态起伏 (WaveV) -> 驱动绕 X 轴俯仰 (Roll) 与 Z 轴上下位移 (Trans.Z)
+	// - 横向步态迈步 (WaveH) -> 驱动绕 Y 轴侧翻 (Pitch)、绕 Z 轴横摆 (Yaw) 与 X 轴左右位移 (Trans.X)
+	OutBobRot.Roll  = WaveV * 1.3f;
+	OutBobRot.Pitch = WaveH * -1.8f;
+	OutBobRot.Yaw   = WaveH * 1.6f;
 
-	OutBobTrans.X   = 0.0f;
-	OutBobTrans.Y   = WaveH * 0.8f;
-	OutBobTrans.Z   = WaveV * 0.9f;
+	OutBobTrans.X = WaveH * 0.85f;
+	OutBobTrans.Y = 0.0f;
+	OutBobTrans.Z = WaveV * 0.95f;
 
-	// 步骤 5：检测脚步触地波谷触发点（当垂直正弦波从负穿越到非负时为脚掌着地瞬间）
-	// 预留给未来无缝触发脚步音效或地面微震
 	bOutFootstepTrigger = (FMath::Sin(2.0f * InWalkPhase) < 0.0f) && (FMath::Sin(2.0f * PhaseNew) >= 0.0f);
 }
 
+// ----------------------------------------------------------------------------
+// 4. 二阶欠阻尼弹簧解算器 (内置触地瞬间 Velocity Kick 动量直注逻辑)
+// ----------------------------------------------------------------------------
 void UFPSAnimFunctionLibrary::CFLF_solveDualSpringSway(
 	const FRotator& LookRot,
 	const FVector& LookTrans,
@@ -164,63 +187,62 @@ void UFPSAnimFunctionLibrary::CFLF_solveDualSpringSway(
 	FRotator& OutTotalRot,
 	FVector& OutTotalTrans)
 {
-	// 步骤 1：机瞄（ADS）衰减系数
-	// 腰射（ADSAlpha = 0）全额晃动；机瞄（ADSAlpha = 1）平滑衰减至 15%（0.15），保证开镜视野稳定
-	const float ClampedADSAlpha = FMath::Clamp(ADSAlpha, 0.0f, 1.0f);
-	const float ADSScale = FMath::Lerp(1.0f, 0.15f, ClampedADSAlpha);
+	const float SafeDeltaTime = FMath::Max(DeltaTime, 0.0001f);
+	const float SwayScale = 1.0f - FMath::Clamp(ADSAlpha, 0.0f, 1.0f) * 0.85f;
 
-	// 步骤 2：合成总目标旋转（小角度下直接叠加三通道：视线滞后 + 移动加减速 + 步态起伏）
-	const float TotalPitch = (LookRot.Pitch + ImpulseRot.Pitch + BobRot.Pitch) * ADSScale;
-	const float TotalYaw   = (LookRot.Yaw   + ImpulseRot.Yaw   + BobRot.Yaw)   * ADSScale;
-	const float TotalRoll  = (LookRot.Roll  + ImpulseRot.Roll  + BobRot.Roll)  * ADSScale;
+	// 检查是否收到来自 CFLF_calMoveImpulseTarget 的触地瞬间动量注入信号
+	FVector CleanImpulseTrans = ImpulseTrans;
+	if (CleanImpulseTrans.Z < HandSwayInternal::LANDING_SIGNAL_THRESHOLD)
+	{
+		// 解码落地冲击强度 Ratio (0.25 ~ 2.0)
+		const float ImpactRatio = FMath::Clamp(
+			-(CleanImpulseTrans.Z - HandSwayInternal::LANDING_SIGNAL_OFFSET) / 100.0f,
+			0.0f, 2.5f
+		);
+		CleanImpulseTrans.Z = 0.0f; // 还原稳态位移目标为 0
 
-	// 对目标旋转进行最终安全限幅
+		// 直接向二阶弹簧内部速度向量注入落地重锤冲击 (Spring Velocity Kick)！
+		// 约定 RotVec 分量顺序：X = Roll (上下俯仰), Y = Pitch (枪身侧翻), Z = Yaw (左右横摆)
+		RotSpringState.Velocity.X   += ImpactRatio * (-185.0f) * SwayScale; // 枪口猛烈下栽低头 (~ -8度峰值)
+		RotSpringState.Velocity.Y   += ImpactRatio * (-75.0f)  * SwayScale; // 伴随机械侧倾震动 (~ -3度峰值)
+		TransSpringState.Velocity.Z += ImpactRatio * (-140.0f) * SwayScale; // 手臂整体向下沉降 (~ -5.8cm峰值)
+		TransSpringState.Velocity.Y += ImpactRatio * (-45.0f)  * SwayScale; // 落地时微向后缩缓冲
+	}
+
+	// 统一按 (X = Roll, Y = Pitch, Z = Yaw) 顺序打包旋转向量并限幅
+	const FVector RawTargetRotVec(
+		(LookRot.Roll  + ImpulseRot.Roll  + BobRot.Roll)  * SwayScale,
+		(LookRot.Pitch + ImpulseRot.Pitch + BobRot.Pitch) * SwayScale,
+		(LookRot.Yaw   + ImpulseRot.Yaw   + BobRot.Yaw)   * SwayScale
+	);
 	const FVector TargetRotVec(
-		FMath::Clamp(TotalPitch, -8.0f, 8.0f),
-		FMath::Clamp(TotalYaw,   -10.0f, 10.0f),
-		FMath::Clamp(TotalRoll,  -12.0f, 12.0f)
+		FMath::Clamp(RawTargetRotVec.X, -10.0f, 10.0f), // Roll: 上下俯仰限幅
+		FMath::Clamp(RawTargetRotVec.Y, -10.0f, 10.0f), // Pitch: 左右侧翻限幅
+		FMath::Clamp(RawTargetRotVec.Z, -16.0f, 16.0f)  // Yaw: 左右横摆放宽至 16度，充分展示枪身侧面
 	);
 
-	// 步骤 3：合成总目标平移
-	const float TotalTransX = (LookTrans.X + ImpulseTrans.X + BobTrans.X) * ADSScale;
-	const float TotalTransY = (LookTrans.Y + ImpulseTrans.Y + BobTrans.Y) * ADSScale;
-	const float TotalTransZ = (LookTrans.Z + ImpulseTrans.Z + BobTrans.Z) * ADSScale;
-
-	// 对目标平移进行最终安全限幅
+	const FVector RawTargetTransVec = (LookTrans + CleanImpulseTrans + BobTrans) * SwayScale;
 	const FVector TargetTransVec(
-		FMath::Clamp(TotalTransX, -3.0f, 3.0f),
-		FMath::Clamp(TotalTransY, -3.0f, 3.0f),
-		FMath::Clamp(TotalTransZ, -4.0f, 4.0f)
+		FMath::Clamp(RawTargetTransVec.X, -3.5f, 3.5f), // X: 左右横移限幅
+		FMath::Clamp(RawTargetTransVec.Y, -3.5f, 3.5f), // Y: 前后推拉限幅
+		FMath::Clamp(RawTargetTransVec.Z, -6.0f, 5.0f)  // Z: 上下浮沉限幅
 	);
 
-	// 步骤 4：当前手部旋转状态解构成 FVector (X=Pitch, Y=Yaw, Z=Roll) 供弹簧解算
-	const FVector CurrentRotVec(CurrentRot.Pitch, CurrentRot.Yaw, CurrentRot.Roll);
+	const FVector CurrentRotVec(CurrentRot.Roll, CurrentRot.Pitch, CurrentRot.Yaw);
 
-	// 步骤 5：调用二阶欠阻尼物理弹簧解算器（Stiffness 刚度, DampingRatio 阻尼比）
+	// 二阶欠阻尼弹簧积分
 	const FVector NewRotVec = UKismetMathLibrary::VectorSpringInterp(
-		CurrentRotVec,
-		TargetRotVec,
-		RotSpringState,
-		Stiffness,
-		DampingRatio,
-		DeltaTime,
-		1.0f // Mass
+		CurrentRotVec, TargetRotVec, RotSpringState, Stiffness, DampingRatio, SafeDeltaTime, 1.0f
 	);
-
 	const FVector NewTransVec = UKismetMathLibrary::VectorSpringInterp(
-		CurrentTrans,
-		TargetTransVec,
-		TransSpringState,
-		Stiffness,
-		DampingRatio,
-		DeltaTime,
-		1.0f // Mass
+		CurrentTrans, TargetTransVec, TransSpringState, Stiffness, DampingRatio, SafeDeltaTime, 1.0f
 	);
 
-	// 步骤 6：100% 作用于 spine_05（单骨骼刚体化驱动）
-	// 根据实测确认与当前架构，直接将全额旋转与位移赋予 spine_05；
-	// 不再拆分手腕与躯干变量，保证右手护木 Socket 与左手 IK 绝对死锁不脱手！
-	OutTotalRot = FRotator(NewRotVec.X, NewRotVec.Y, NewRotVec.Z);
+	// 还原为 FRotator (严格按字段名赋值)
+	OutTotalRot.Roll  = NewRotVec.X;
+	OutTotalRot.Pitch = NewRotVec.Y;
+	OutTotalRot.Yaw   = NewRotVec.Z;
+
 	OutTotalTrans = NewTransVec;
 }
 
