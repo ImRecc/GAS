@@ -11,6 +11,10 @@
 #include "GameplayEffect.h"
 #include "GameplayTagsModule.h"
 #include "Kismet/GameplayStatics.h"
+#include "Abilities/GameplayAbility.h"
+#include "DrawDebugHelpers.h"
+#include "CollisionQueryParams.h"
+#include "Engine/OverlapResult.h"
 
 // ============================================================================
 // 内部常量：用于从 CFLF_calMoveImpulseTarget 向 CFLF_solveDualSpringSway 
@@ -403,4 +407,303 @@ bool UFPSAnimFunctionLibrary::CFLF_ApplyDamageToTarget(
 		GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Yellow, Msg);
 	}
 	return true;
+}
+
+// ----------------------------------------------------------------------------
+// 7. 动态赋予 GAS 技能卡带 (CFLF_GiveAbilityToActor)
+// ----------------------------------------------------------------------------
+FGameplayAbilitySpecHandle UFPSAnimFunctionLibrary::CFLF_GiveAbilityToActor(
+	AActor* TargetActor,
+	TSubclassOf<UGameplayAbility> AbilityClass,
+	int32 AbilityLevel)
+{
+	if (!TargetActor || !AbilityClass)
+	{
+		return FGameplayAbilitySpecHandle();
+	}
+
+	UAbilitySystemComponent* ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetActor);
+	if (!ASC)
+	{
+		return FGameplayAbilitySpecHandle();
+	}
+
+	// 检查是否已经赋予过该 Ability，若有则直接返回现有句柄，防止重复注册
+	if (FGameplayAbilitySpec* ExistingSpec = ASC->FindAbilitySpecFromClass(AbilityClass))
+	{
+		return ExistingSpec->Handle;
+	}
+
+	return ASC->GiveAbility(FGameplayAbilitySpec(AbilityClass, AbilityLevel, INDEX_NONE, TargetActor));
+}
+
+// ----------------------------------------------------------------------------
+// 8. 环形花瓣状抛洒掉落物数组 (CFLF_SpawnScatteredPickupList)
+// ----------------------------------------------------------------------------
+void UFPSAnimFunctionLibrary::CFLF_SpawnScatteredPickupList(
+	const UObject* WorldContextObject,
+	const TArray<TSubclassOf<AActor>>& PickupClasses,
+	FVector CenterLocation,
+	float ScatterRadius,
+	float UpwardImpulse,
+	float OutwardImpulse,
+	float RandomAngularImpulse)
+{
+	if (!WorldContextObject || PickupClasses.IsEmpty())
+	{
+		return;
+	}
+
+	UWorld* World = WorldContextObject->GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	if (CenterLocation.IsNearlyZero())
+	{
+		if (const AActor* ContextActor = Cast<AActor>(WorldContextObject))
+		{
+			CenterLocation = ContextActor->GetActorLocation();
+		}
+	}
+
+	const int32 Count = PickupClasses.Num();
+	const float AngleStep = 360.0f / static_cast<float>(Count);
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	for (int32 i = 0; i < Count; ++i)
+	{
+		TSubclassOf<AActor> PickupClass = PickupClasses[i];
+		if (!PickupClass)
+		{
+			continue;
+		}
+
+		const float BaseAngle = i * AngleStep;
+		const float Jitter = FMath::FRandRange(-12.0f, 12.0f);
+		const float Radians = FMath::DegreesToRadians(BaseAngle + Jitter);
+
+		const FVector Offset(FMath::Cos(Radians) * ScatterRadius, FMath::Sin(Radians) * ScatterRadius, 10.0f);
+		const FVector SpawnLoc = CenterLocation + Offset;
+		const FRotator SpawnRot(0.0f, FMath::FRandRange(0.0f, 360.0f), 0.0f);
+
+		AActor* SpawnedPickup = World->SpawnActor<AActor>(PickupClass, SpawnLoc, SpawnRot, SpawnParams);
+		if (!SpawnedPickup)
+		{
+			continue;
+		}
+
+		UPrimitiveComponent* PrimComp = Cast<UPrimitiveComponent>(SpawnedPickup->GetRootComponent());
+		if (!PrimComp)
+		{
+			PrimComp = SpawnedPickup->FindComponentByClass<UPrimitiveComponent>();
+		}
+
+		if (PrimComp)
+		{
+			if (!PrimComp->IsSimulatingPhysics())
+			{
+				PrimComp->SetSimulatePhysics(true);
+			}
+
+			FVector LaunchVel = FVector(FMath::Cos(Radians), FMath::Sin(Radians), 0.0f) * OutwardImpulse;
+			LaunchVel.Z = UpwardImpulse + FMath::FRandRange(-30.0f, 30.0f);
+
+			PrimComp->AddImpulse(LaunchVel, NAME_None, true);
+
+			FVector RandomSpin(
+				FMath::FRandRange(-1.0f, 1.0f),
+				FMath::FRandRange(-1.0f, 1.0f),
+				FMath::FRandRange(-1.0f, 1.0f)
+			);
+			PrimComp->AddAngularImpulseInDegrees(RandomSpin.GetSafeNormal() * RandomAngularImpulse, NAME_None, true);
+		}
+	}
+}
+
+// ----------------------------------------------------------------------------
+// 9. 单节点球形敌对目标伤害结算 (CFLF_SphereDamageHostiles)
+// ----------------------------------------------------------------------------
+int32 UFPSAnimFunctionLibrary::CFLF_SphereDamageHostiles(
+	AActor* InstigatorActor,
+	FVector SphereCenter,
+	float Radius,
+	float Damage,
+	bool bDrawDebug)
+{
+	if (!InstigatorActor || Radius <= 0.0f || Damage <= 0.0f)
+	{
+		return 0;
+	}
+
+	UWorld* World = InstigatorActor->GetWorld();
+	if (!World)
+	{
+		return 0;
+	}
+
+	if (SphereCenter.IsNearlyZero())
+	{
+		SphereCenter = InstigatorActor->GetActorLocation();
+	}
+
+	if (bDrawDebug)
+	{
+		DrawDebugSphere(World, SphereCenter, Radius, 16, FColor::Orange, false, 0.4f, 0, 1.5f);
+	}
+
+	// 1. 获取攻击者所属阵营
+	UAbilitySystemComponent* InstigatorASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(InstigatorActor);
+	const FGameplayTag PlayerTag = FGameplayTag::RequestGameplayTag(FName("Team.Player"), false);
+	const FGameplayTag EnemyTag = FGameplayTag::RequestGameplayTag(FName("Team.Enemy"), false);
+
+	bool bInstigatorIsPlayer = false;
+	bool bInstigatorIsEnemy = false;
+	if (InstigatorASC)
+	{
+		bInstigatorIsPlayer = InstigatorASC->HasMatchingGameplayTag(PlayerTag);
+		bInstigatorIsEnemy = InstigatorASC->HasMatchingGameplayTag(EnemyTag);
+	}
+	else
+	{
+		const APawn* InstPawn = Cast<APawn>(InstigatorActor);
+		bInstigatorIsPlayer = InstPawn && InstPawn->IsPlayerControlled();
+		bInstigatorIsEnemy = !bInstigatorIsPlayer;
+	}
+
+	// 2. 球形检测重叠的目标 (查询 Pawn 碰撞对象)
+	TArray<FOverlapResult> Overlaps;
+	FCollisionShape SphereShape = FCollisionShape::MakeSphere(Radius);
+	FCollisionObjectQueryParams ObjectQueryParams;
+	ObjectQueryParams.AddObjectTypesToQuery(ECC_Pawn);
+
+	FCollisionQueryParams QueryParams(TEXT("SphereDamageHostiles"), false, InstigatorActor);
+	QueryParams.AddIgnoredActor(InstigatorActor);
+
+	World->OverlapMultiByObjectType(
+		Overlaps,
+		SphereCenter,
+		FQuat::Identity,
+		ObjectQueryParams,
+		SphereShape,
+		QueryParams
+	);
+
+	int32 DamagedCount = 0;
+	TSet<AActor*> ProcessedActors;
+
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		AActor* HitActor = Overlap.GetActor();
+		if (!HitActor || HitActor == InstigatorActor || ProcessedActors.Contains(HitActor))
+		{
+			continue;
+		}
+		ProcessedActors.Add(HitActor);
+
+		// 判断目标是否为敌对目标
+		UAbilitySystemComponent* TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(HitActor);
+		bool bTargetIsPlayer = false;
+		bool bTargetIsEnemy = false;
+		if (TargetASC)
+		{
+			bTargetIsPlayer = TargetASC->HasMatchingGameplayTag(PlayerTag);
+			bTargetIsEnemy = TargetASC->HasMatchingGameplayTag(EnemyTag);
+		}
+		else
+		{
+			const APawn* TargetPawn = Cast<APawn>(HitActor);
+			bTargetIsPlayer = TargetPawn && TargetPawn->IsPlayerControlled();
+			bTargetIsEnemy = !bTargetIsPlayer;
+		}
+
+		const bool bIsHostile = (bInstigatorIsPlayer && bTargetIsEnemy) || (bInstigatorIsEnemy && bTargetIsPlayer);
+		if (bIsHostile)
+		{
+			if (CFLF_ApplyDamageToTarget(HitActor, Damage, InstigatorActor))
+			{
+				DamagedCount++;
+			}
+		}
+	}
+
+	return DamagedCount;
+}
+
+// ----------------------------------------------------------------------------
+// 10. 单节点视线遮挡与前向夹角对准检测 (CFLF_CheckAimAndLineOfSight)
+// ----------------------------------------------------------------------------
+void UFPSAnimFunctionLibrary::CFLF_CheckAimAndLineOfSight(
+	AActor* SourceActor,
+	AActor* TargetActor,
+	float MaxAngleDegrees,
+	bool& bHasLineOfSight,
+	bool& bIsAimAligned)
+{
+	bHasLineOfSight = false;
+	bIsAimAligned = false;
+
+	if (!SourceActor || !TargetActor)
+	{
+		return;
+	}
+
+	UWorld* World = SourceActor->GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// 1. 计算视线起点（眼睛高度）与终点（目标胸部高度）
+	FVector StartLoc = SourceActor->GetActorLocation();
+	if (const APawn* SourcePawn = Cast<APawn>(SourceActor))
+	{
+		const float EyeHeight = SourcePawn->BaseEyeHeight > 0.0f ? SourcePawn->BaseEyeHeight : 50.0f;
+		StartLoc.Z += EyeHeight;
+	}
+	else
+	{
+		StartLoc.Z += 50.0f;
+	}
+
+	FVector TargetLoc = TargetActor->GetActorLocation();
+	if (const APawn* TargetPawn = Cast<APawn>(TargetActor))
+	{
+		const float TargetEye = TargetPawn->BaseEyeHeight > 0.0f ? TargetPawn->BaseEyeHeight * 0.7f : 35.0f;
+		TargetLoc.Z += TargetEye;
+	}
+	else
+	{
+		TargetLoc.Z += 35.0f;
+	}
+
+	// 2. 射线遮挡检测 (ECC_Visibility)
+	FHitResult HitResult;
+	FCollisionQueryParams TraceParams(TEXT("CheckLineOfSight"), false, SourceActor);
+	TraceParams.AddIgnoredActor(SourceActor);
+
+	const bool bHit = World->LineTraceSingleByChannel(
+		HitResult,
+		StartLoc,
+		TargetLoc,
+		ECC_Visibility,
+		TraceParams
+	);
+
+	if (!bHit || HitResult.GetActor() == TargetActor)
+	{
+		bHasLineOfSight = true;
+	}
+
+	// 3. 计算前向对准水平夹角 (仅在水平 XY 平面计算，防止高低差误判朝向)
+	const FVector ToTarget2D = (TargetLoc - StartLoc).GetSafeNormal2D();
+	const FVector Forward2D = SourceActor->GetActorForwardVector().GetSafeNormal2D();
+
+	const float Dot = FVector::DotProduct(Forward2D, ToTarget2D);
+	const float Threshold = FMath::Cos(FMath::DegreesToRadians(MaxAngleDegrees));
+
+	bIsAimAligned = (Dot >= Threshold);
 }

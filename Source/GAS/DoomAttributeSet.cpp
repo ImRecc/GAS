@@ -58,8 +58,15 @@ void UDoomAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallba
 				// 直接调用 Character 的死亡实现事件，省去蓝图监听 GameplayEvent 的繁琐
 				if (ADoomBaseCharacter* DoomChar = Cast<ADoomBaseCharacter>(OwningActor))
 				{
+					DoomChar->bIsDead = true;
 					AActor* Killer = Payload.Instigator ? const_cast<AActor*>(Payload.Instigator.Get()) : nullptr;
 					DoomChar->OnCharacterDeath(Killer);
+				}
+
+				// 将 State.Dead 挂载到 ASC 上作为物理门锁标签
+				if (UAbilitySystemComponent* ASC = OwningActor->FindComponentByClass<UAbilitySystemComponent>())
+				{
+					ASC->AddLooseGameplayTag(DeathTag);
 				}
 			}
 		}

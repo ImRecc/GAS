@@ -8,6 +8,7 @@
 
 class UAbilitySystemComponent;
 class UDoomAttributeSet;
+class UGameplayAbility;
 
 /**
  * 具有 GAS 架构与 Doom 风格机动核心的角色基类
@@ -21,6 +22,30 @@ public:
 	ADoomBaseCharacter();
 
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+
+	/** 默认攻击卡带技能（进入游戏时自动赋予 ASC） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Grunt")
+	TSubclassOf<UGameplayAbility> DefaultAttackAbility;
+
+	/** 进入战斗站桩射程（uu） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Grunt", meta = (ClampMin = "50.0"))
+	float EngageRange = 750.0f;
+
+	/** 脱离战斗重新追击射程（uu，必须大于 EngageRange 形成迟滞防抖带） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Grunt", meta = (ClampMin = "50.0"))
+	float DisengageRange = 900.0f;
+
+	/** 是否为定点炮台（不可移动） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Grunt")
+	bool bIsStationary = false;
+
+	/** 死亡花瓣状散落掉落物配置列表 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Grunt")
+	TArray<TSubclassOf<AActor>> LootDrops;
+
+	/** 角色是否已经处于死亡状态（用于死怪核心保龄球碰撞连杀与逻辑门锁） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat|Grunt")
+	bool bIsDead = false;
 
 	/** 获取当前冲刺充能进度百分比（0.0 ~ 1.0），冲刺槽满时返回 1.0 */
 	UFUNCTION(BlueprintPure, Category = "GAS|Dash")

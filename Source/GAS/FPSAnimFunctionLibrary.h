@@ -6,9 +6,11 @@
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "GameplayEffectTypes.h"
+#include "GameplayAbilitySpecHandle.h"
 #include "FPSAnimFunctionLibrary.generated.h"
 
 class UGameplayEffect;
+class UGameplayAbility;
 
 /**
  * FPS 第一人称动画、物理计算与战斗辅助函数库
@@ -113,5 +115,53 @@ public:
 		float DamageAmount,
 		AActor* InstigatorActor,
 		TSubclassOf<UGameplayEffect> DamageGEClass = nullptr
+	);
+
+	/**
+	 * 动态向目标 Actor 的 ASC 赋予指定的 GAS 技能（卡带热插拔，若已存在则直接返回句柄）
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|Combat", meta = (DisplayName = "CFLF_GiveAbilityToActor", Keywords = "Give Ability GAS Card Grant CFLF"))
+	static FGameplayAbilitySpecHandle CFLF_GiveAbilityToActor(
+		AActor* TargetActor,
+		TSubclassOf<UGameplayAbility> AbilityClass,
+		int32 AbilityLevel = 1
+	);
+
+	/**
+	 * 向四周等分环形抛洒一组由 Class 数组配置的实体掉落物（花瓣式爆装备 / 数组化多类掉落）
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|Combat", meta = (WorldContext = "WorldContextObject", DisplayName = "CFLF_SpawnScatteredPickupList", Keywords = "Spawn Drop Pickup Scatter Halo List Fodder CFLF", ScatterRadius = "35.0", UpwardImpulse = "350.0", OutwardImpulse = "200.0", RandomAngularImpulse = "180.0"))
+	static void CFLF_SpawnScatteredPickupList(
+		const UObject* WorldContextObject,
+		const TArray<TSubclassOf<AActor>>& PickupClasses,
+		FVector CenterLocation,
+		float ScatterRadius = 35.0f,
+		float UpwardImpulse = 350.0f,
+		float OutwardImpulse = 200.0f,
+		float RandomAngularImpulse = 180.0f
+	);
+
+	/**
+	 * 单节点前方/周围球形范围伤害检测：自动比对 Team.Player 与 Team.Enemy 过滤敌对目标并结算伤害
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|Combat", meta = (DisplayName = "CFLF_SphereDamageHostiles", Keywords = "Sphere Damage Hostile Faction Hurt CFLF", Radius = "110.0", Damage = "15.0", bDrawDebug = "false"))
+	static int32 CFLF_SphereDamageHostiles(
+		AActor* InstigatorActor,
+		FVector SphereCenter,
+		float Radius = 110.0f,
+		float Damage = 15.0f,
+		bool bDrawDebug = false
+	);
+
+	/**
+	 * 单节点检测视线遮挡与水平对准夹角（用于 AI 射程防抖与精准开火判定）
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|Combat", meta = (DisplayName = "CFLF_CheckAimAndLineOfSight", Keywords = "AI Sight Aim Angle LOS Hysteresis CFLF", MaxAngleDegrees = "15.0"))
+	static void CFLF_CheckAimAndLineOfSight(
+		AActor* SourceActor,
+		AActor* TargetActor,
+		float MaxAngleDegrees,
+		bool& bHasLineOfSight,
+		bool& bIsAimAligned
 	);
 };

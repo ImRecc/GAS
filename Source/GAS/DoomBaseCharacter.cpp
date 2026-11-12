@@ -38,6 +38,12 @@ void ADoomBaseCharacter::PossessedBy(AController* NewController)
 				Delegate.AddUObject(this, &ADoomBaseCharacter::OnDashCountChanged);
 			}
 		}
+
+		// 若配置了默认攻击技能卡带，自动赋予 ASC
+		if (DefaultAttackAbility && !AbilitySystemComponent->FindAbilitySpecFromClass(DefaultAttackAbility))
+		{
+			AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(DefaultAttackAbility, 1, INDEX_NONE, this));
+		}
 	}
 }
 
@@ -53,6 +59,12 @@ void ADoomBaseCharacter::BeginPlay()
 		{
 			Delegate.AddUObject(this, &ADoomBaseCharacter::OnDashCountChanged);
 		}
+	}
+
+	// 确保在 BeginPlay 时也尝试赋予攻击技能卡带（若尚未赋予）
+	if (DefaultAttackAbility && AbilitySystemComponent && !AbilitySystemComponent->FindAbilitySpecFromClass(DefaultAttackAbility))
+	{
+		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(DefaultAttackAbility, 1, INDEX_NONE, this));
 	}
 }
 
