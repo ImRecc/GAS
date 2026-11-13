@@ -707,3 +707,53 @@ void UFPSAnimFunctionLibrary::CFLF_CheckAimAndLineOfSight(
 
 	bIsAimAligned = (Dot >= Threshold);
 }
+
+// ----------------------------------------------------------------------------
+// 11. 战斗姿态两态迟滞防抖计算 (CFLF_EvaluateCombatStance)
+// ----------------------------------------------------------------------------
+void UFPSAnimFunctionLibrary::CFLF_EvaluateCombatStance(
+	const AActor* SourceActor,
+	const AActor* TargetActor,
+	float EngageRange,
+	float DisengageRange,
+	bool bCurrentStance,
+	bool bHasLineOfSight,
+	bool& bNewStance,
+	float& OutDistance2D)
+{
+	bNewStance = bCurrentStance;
+	OutDistance2D = 0.0f;
+
+	if (!SourceActor || !TargetActor)
+	{
+		bNewStance = false;
+		return;
+	}
+
+	// 1. 计算忽略 Z 轴的纯水平 2D 距离（防止玩家跳跃或高低差误判）
+	const FVector SLoc = SourceActor->GetActorLocation();
+	const FVector TLoc = TargetActor->GetActorLocation();
+	OutDistance2D = FVector2D::Distance(FVector2D(SLoc.X, SLoc.Y), FVector2D(TLoc.X, TLoc.Y));
+
+	// 2. 迟滞缓冲区安全保护（若策划手抖把 Disengage 填得比 Engage 还小，自动取最大值形成防抖带）
+	const float SafeDisengageRange = FMath::Max(DisengageRange, EngageRange);
+
+	// 3. 两态迟滞状态机
+	if (!bCurrentStance)
+	{
+		// 当前正在追击 (Approach) -> 只有当进入射程且具有视线时，才切换为站定输出
+		if (OutDistance2D <= EngageRange && bHasLineOfSight)
+		{
+			bNewStance = true;
+		}
+	}
+	else
+	{
+		// 当前正在站定输出 (Combat Stance) -> 只有当彻底脱离缓冲射程，或者完全丢失视线时，才切回追击
+		if (OutDistance2D > SafeDisengageRange || !bHasLineOfSight)
+		{
+			bNewStance = false;
+		}
+	}
+}
+

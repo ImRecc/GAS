@@ -164,4 +164,19 @@ public:
 		bool& bHasLineOfSight,
 		bool& bIsAimAligned
 	);
+
+	/**
+	 * 单节点评估敌人战斗姿态迟滞防抖（计算 2D 距离并根据视线与迟滞带判定是保持输出还是迈步追击）
+	 */
+	UFUNCTION(BlueprintPure, Category = "FPS|Combat|AI", meta = (DisplayName = "CFLF_EvaluateCombatStance", Keywords = "AI Stance Hysteresis Range Distance CFLF"))
+	static void CFLF_EvaluateCombatStance(
+		const AActor* SourceActor,
+		const AActor* TargetActor,
+		float EngageRange,
+		float DisengageRange,
+		bool bCurrentStance,
+		bool bHasLineOfSight,
+		bool& bNewStance,
+		float& OutDistance2D
+	);
 };

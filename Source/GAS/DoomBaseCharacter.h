@@ -27,17 +27,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Grunt")
 	TSubclassOf<UGameplayAbility> DefaultAttackAbility;
 
-	/** 进入战斗站桩射程（uu） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Grunt", meta = (ClampMin = "50.0"))
-	float EngageRange = 750.0f;
-
-	/** 脱离战斗重新追击射程（uu，必须大于 EngageRange 形成迟滞防抖带） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Grunt", meta = (ClampMin = "50.0"))
-	float DisengageRange = 900.0f;
-
-	/** 是否为定点炮台（不可移动） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Grunt")
-	bool bIsStationary = false;
 
 	/** 死亡花瓣状散落掉落物配置列表 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Grunt")
