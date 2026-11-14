@@ -154,6 +154,21 @@ public:
 	);
 
 	/**
+	 * 投射物与环境范围爆炸结算（带距离线性衰减、敌对阵营过滤、物理气浪与死怪刚体冲量炸飞）
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|Combat", meta = (DisplayName = "CFLF_ExplodeRadialDamage", Keywords = "Explode Radial Splash Damage Bomb CFLF", Radius = "350.0", BaseDamage = "50.0", MinDamageFraction = "0.3", ImpulseStrength = "1500.0", bDrawDebug = "false"))
+	static int32 CFLF_ExplodeRadialDamage(
+		AActor* DamageCauser,
+		AActor* InstigatorActor,
+		FVector ExplodeCenter,
+		float Radius = 350.0f,
+		float BaseDamage = 50.0f,
+		float MinDamageFraction = 0.3f,
+		float ImpulseStrength = 1500.0f,
+		bool bDrawDebug = false
+	);
+
+	/**
 	 * 单节点检测视线遮挡与水平对准夹角（用于 AI 射程防抖与精准开火判定）
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FPS|Combat", meta = (DisplayName = "CFLF_CheckAimAndLineOfSight", Keywords = "AI Sight Aim Angle LOS Hysteresis CFLF", MaxAngleDegrees = "15.0"))

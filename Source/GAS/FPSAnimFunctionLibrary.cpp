@@ -634,6 +634,181 @@ int32 UFPSAnimFunctionLibrary::CFLF_SphereDamageHostiles(
 }
 
 // ----------------------------------------------------------------------------
+// 9.5 投射物与环境范围爆炸结算 (带距离线性衰减、敌对过滤、物理冲击波与死怪炸飞推力)
+// ----------------------------------------------------------------------------
+int32 UFPSAnimFunctionLibrary::CFLF_ExplodeRadialDamage(
+	AActor* DamageCauser,
+	AActor* InstigatorActor,
+	FVector ExplodeCenter,
+	float Radius,
+	float BaseDamage,
+	float MinDamageFraction,
+	float ImpulseStrength,
+	bool bDrawDebug)
+{
+	if (Radius <= 0.0f || BaseDamage <= 0.0f)
+	{
+		return 0;
+	}
+
+	UWorld* World = nullptr;
+	if (DamageCauser)
+	{
+		World = DamageCauser->GetWorld();
+	}
+	else if (InstigatorActor)
+	{
+		World = InstigatorActor->GetWorld();
+	}
+
+	if (!World)
+	{
+		return 0;
+	}
+
+	if (ExplodeCenter.IsNearlyZero() && DamageCauser)
+	{
+		ExplodeCenter = DamageCauser->GetActorLocation();
+	}
+
+	if (bDrawDebug)
+	{
+		DrawDebugSphere(World, ExplodeCenter, Radius, 24, FColor::Red, false, 1.0f, 0, 2.0f);
+	}
+
+	// 1. 获取攻击者所属阵营 (若未指定 Instigator 则尝试从 DamageCauser 取 Instigator)
+	AActor* ActualInstigator = InstigatorActor;
+	if (!ActualInstigator && DamageCauser)
+	{
+		ActualInstigator = DamageCauser->GetInstigator();
+	}
+
+	const FGameplayTag PlayerTag = FGameplayTag::RequestGameplayTag(FName("Team.Player"), false);
+	const FGameplayTag EnemyTag = FGameplayTag::RequestGameplayTag(FName("Team.Enemy"), false);
+
+	bool bInstigatorIsPlayer = false;
+	bool bInstigatorIsEnemy = false;
+	if (ActualInstigator)
+	{
+		UAbilitySystemComponent* InstigatorASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(ActualInstigator);
+		if (InstigatorASC)
+		{
+			bInstigatorIsPlayer = InstigatorASC->HasMatchingGameplayTag(PlayerTag);
+			bInstigatorIsEnemy = InstigatorASC->HasMatchingGameplayTag(EnemyTag);
+		}
+		else
+		{
+			const APawn* InstPawn = Cast<APawn>(ActualInstigator);
+			bInstigatorIsPlayer = InstPawn && InstPawn->IsPlayerControlled();
+			bInstigatorIsEnemy = !bInstigatorIsPlayer;
+		}
+	}
+
+	// 2. 空间球形重叠查询 (查询 Pawn 与 PhysicsBody)
+	TArray<FOverlapResult> Overlaps;
+	FCollisionShape SphereShape = FCollisionShape::MakeSphere(Radius);
+	FCollisionObjectQueryParams ObjectQueryParams;
+	ObjectQueryParams.AddObjectTypesToQuery(ECC_Pawn);
+	ObjectQueryParams.AddObjectTypesToQuery(ECC_PhysicsBody);
+
+	FCollisionQueryParams QueryParams(TEXT("ExplodeRadialDamage"), false, DamageCauser);
+	if (DamageCauser)
+	{
+		QueryParams.AddIgnoredActor(DamageCauser);
+	}
+
+	World->OverlapMultiByObjectType(
+		Overlaps,
+		ExplodeCenter,
+		FQuat::Identity,
+		ObjectQueryParams,
+		SphereShape,
+		QueryParams
+	);
+
+	int32 DamagedCount = 0;
+	TSet<AActor*> ProcessedActors;
+	const float SafeMinFraction = FMath::Clamp(MinDamageFraction, 0.0f, 1.0f);
+
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		AActor* HitActor = Overlap.GetActor();
+		if (!HitActor || HitActor == DamageCauser || ProcessedActors.Contains(HitActor))
+		{
+			continue;
+		}
+		ProcessedActors.Add(HitActor);
+
+		// 判断是否对该目标造成伤害 (敌对过滤：不误伤发射者自己/同阵营)
+		bool bShouldDamage = true;
+		if (ActualInstigator)
+		{
+			if (HitActor == ActualInstigator)
+			{
+				bShouldDamage = false; // 默认不炸伤开火者自身
+			}
+			else
+			{
+				UAbilitySystemComponent* TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(HitActor);
+				bool bTargetIsPlayer = false;
+				bool bTargetIsEnemy = false;
+				if (TargetASC)
+				{
+					bTargetIsPlayer = TargetASC->HasMatchingGameplayTag(PlayerTag);
+					bTargetIsEnemy = TargetASC->HasMatchingGameplayTag(EnemyTag);
+				}
+				else
+				{
+					const APawn* TargetPawn = Cast<APawn>(HitActor);
+					bTargetIsPlayer = TargetPawn && TargetPawn->IsPlayerControlled();
+					bTargetIsEnemy = !bTargetIsPlayer;
+				}
+
+				if (bInstigatorIsPlayer || bInstigatorIsEnemy)
+				{
+					bShouldDamage = (bInstigatorIsPlayer && bTargetIsEnemy) || (bInstigatorIsEnemy && bTargetIsPlayer);
+				}
+			}
+		}
+
+		if (bShouldDamage)
+		{
+			// 距离线性衰减结算 (中心 100% -> 边缘 MinDamageFraction)
+			const float Dist = FVector::Dist(ExplodeCenter, HitActor->GetActorLocation());
+			const float DistAlpha = FMath::Clamp(Dist / Radius, 0.0f, 1.0f);
+			const float ScaledDamage = FMath::Lerp(BaseDamage, BaseDamage * SafeMinFraction, DistAlpha);
+
+			if (CFLF_ApplyDamageToTarget(HitActor, ScaledDamage, ActualInstigator))
+			{
+				DamagedCount++;
+			}
+		}
+
+		// 3. 物理冲击波推力 (将死怪核心、刚体、可破坏物顺着爆炸法线猛烈推开)
+		if (ImpulseStrength > 0.0f)
+		{
+			TArray<UPrimitiveComponent*> PrimComponents;
+			HitActor->GetComponents<UPrimitiveComponent>(PrimComponents);
+			for (UPrimitiveComponent* PrimComp : PrimComponents)
+			{
+				if (PrimComp && PrimComp->IsSimulatingPhysics())
+				{
+					PrimComp->AddRadialImpulse(
+						ExplodeCenter,
+						Radius,
+						ImpulseStrength,
+						ERadialImpulseFalloff::RIF_Linear,
+						true // bVelChange (直接向速度向量施加瞬间冲量，爽快利落)
+					);
+				}
+			}
+		}
+	}
+
+	return DamagedCount;
+}
+
+// ----------------------------------------------------------------------------
 // 10. 单节点视线遮挡与前向夹角对准检测 (CFLF_CheckAimAndLineOfSight)
 // ----------------------------------------------------------------------------
 void UFPSAnimFunctionLibrary::CFLF_CheckAimAndLineOfSight(
