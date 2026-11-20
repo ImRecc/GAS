@@ -932,3 +932,47 @@ void UFPSAnimFunctionLibrary::CFLF_EvaluateCombatStance(
 	}
 }
 
+// ----------------------------------------------------------------------------
+// 12. 径向武器轮盘扇区解析算法 (CFLF_CalculateRadialSector)
+// 纯数学无状态，输入为屏幕空间虚拟光标 (+X 右, +Y 下)，输出 12 点钟为 0° 的顺时针角度
+// ----------------------------------------------------------------------------
+void UFPSAnimFunctionLibrary::CFLF_CalculateRadialSector(
+	FVector2D InCursorVector,
+	int32 NumSectors,
+	float DeadZone,
+	float& OutAngleDegrees,
+	int32& OutSectorIndex,
+	bool& bOutInDeadZone)
+{
+	// 1. 防止非法扇区数导致除零
+	const int32 SafeSectors = FMath::Max(1, NumSectors);
+
+	// 2. 中心死区截断（用 SizeSquared 避免无谓开方运算，保证高频每帧调用零负担）
+	const float SafeDeadZone = FMath::Max(0.0f, DeadZone);
+	if (InCursorVector.SizeSquared() < SafeDeadZone * SafeDeadZone)
+	{
+		OutAngleDegrees = 0.0f;
+		OutSectorIndex = -1;
+		bOutInDeadZone = true;
+		return;
+	}
+
+	bOutInDeadZone = false;
+
+	// 3. 屏幕空间 (+X 右, +Y 下) 转 12 点钟正上方为 0° 的顺时针角度
+	//    原理：标准极坐标中正右为 0° 逆时针；此处需求为 12 点钟正上 (+Y 负方向) 为 0° 顺时针 (+X 正方向)
+	//    因此在标准 Atan2(Y, X) 基础上将纵横轴投影：Atan2(X, -Y)
+	//    - 正上 (0, -1) -> Atan2(0, 1) = 0°
+	//    - 正右 (1,  0) -> Atan2(1, 0) = 90°
+	//    - 正下 (0,  1) -> Atan2(0,-1) = 180°
+	//    - 正左 (-1, 0) -> Atan2(-1,0) = -90° -> +360° = 270°
+	const float AngleDeg = FMath::RadiansToDegrees(FMath::Atan2(InCursorVector.X, -InCursorVector.Y));
+	OutAngleDegrees = FMath::Fmod(AngleDeg + 360.0f, 360.0f);
+
+	// 4. 加半个扇区宽度的偏置，使 0° 落在 0 号扇区正中央（避免在 0° 边缘微抖导致槽位跳变）
+	const float SectorStep = 360.0f / static_cast<float>(SafeSectors);
+	const float ShiftedAngle = FMath::Fmod(OutAngleDegrees + (SectorStep * 0.5f), 360.0f);
+	OutSectorIndex = FMath::FloorToInt(ShiftedAngle / SectorStep) % SafeSectors;
+}
+
+

@@ -194,4 +194,26 @@ public:
 		bool& bNewStance,
 		float& OutDistance2D
 	);
+
+	/**
+	 * 径向武器轮盘扇区解析算法（纯数学无状态，不依赖 DeltaTime / TimeDilation）
+	 * 坐标系约定：输入为屏幕空间虚拟光标向量（+X 向右，+Y 向下）。
+	 * 角度约定：12 点钟正上方为 0°，顺时针递增至 360°（与 UMG SetRenderTransformAngle 一致）。
+	 *
+	 * @param InCursorVector  累加并钳制后的虚拟光标 2D 向量（像素/单位）
+	 * @param NumSectors      轮盘扇区总数（默认 8）
+	 * @param DeadZone        中心死区半径（向量长度小于此值时不判定扇区，防止微抖误触）
+	 * @param OutAngleDegrees 输出规范化顺时针角度 [0, 360)，死区内保持 0.0
+	 * @param OutSectorIndex  输出扇区索引 [0, NumSectors - 1]（0 = 12点钟顺时针递增），死区内返回 -1
+	 * @param bOutInDeadZone  是否处于中心死区
+	 */
+	UFUNCTION(BlueprintPure, Category = "FPS|UI", meta = (DisplayName = "CFLF_CalculateRadialSector", Keywords = "Wheel Radial Sector Calculate Angle CFLF", NumSectors = "8", DeadZone = "35.0"))
+	static void CFLF_CalculateRadialSector(
+		FVector2D InCursorVector,
+		int32 NumSectors,
+		float DeadZone,
+		float& OutAngleDegrees,
+		int32& OutSectorIndex,
+		bool& bOutInDeadZone
+	);
 };
