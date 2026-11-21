@@ -108,6 +108,7 @@ flowchart TD
 | **`CFLF_CheckAimAndLineOfSight`** | 眼部到胸部射线 (`ECC_Visibility`) + 水平点积前向夹角判定 | AI 射击前置 / `MaxAngleDegrees` (允许瞄准夹角) |
 | **`CFLF_EvaluateCombatStance`** | 忽略 Z 轴 2D 距离 + 施密特双阈值迟滞（Engage vs Disengage）防频繁踱步 | AI 移动状态机 / `EngageRange` (进入射程), `DisengageRange` (脱离射程) |
 | **`CFLF_CalculateRadialSector`** | 虚拟光标死区截断 + $\text{Atan2}(X, -Y)$ 12点钟对齐顺时针角度 + 半扇区偏置居中整除 | `W_weaponWheel_v2` / `NumSectors` (默认8), `DeadZone` (默认35.0) |
+| **`CFLF_GetUnscaledDeltaTime`** | 读取 `FApp::GetDeltaTime()` 绝对真实时间步长，杜绝 0.15x 子弹时间下 UI 平滑插值变迟钝 | `W_WeaponWheelSlot` / 供 `Vector2DInterpTo` 真实时间驱动 |
 
 ---
 

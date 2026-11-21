@@ -15,6 +15,7 @@
 #include "DrawDebugHelpers.h"
 #include "CollisionQueryParams.h"
 #include "Engine/OverlapResult.h"
+#include "Misc/App.h"
 
 // ============================================================================
 // 内部常量：用于从 CFLF_calMoveImpulseTarget 向 CFLF_solveDualSpringSway 
@@ -973,6 +974,11 @@ void UFPSAnimFunctionLibrary::CFLF_CalculateRadialSector(
 	const float SectorStep = 360.0f / static_cast<float>(SafeSectors);
 	const float ShiftedAngle = FMath::Fmod(OutAngleDegrees + (SectorStep * 0.5f), 360.0f);
 	OutSectorIndex = FMath::FloorToInt(ShiftedAngle / SectorStep) % SafeSectors;
+}
+
+float UFPSAnimFunctionLibrary::CFLF_GetUnscaledDeltaTime()
+{
+	return FApp::GetDeltaTime();
 }
 
 

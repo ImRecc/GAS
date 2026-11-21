@@ -13,6 +13,18 @@ class UGameplayEffect;
 class UGameplayAbility;
 
 /**
+ * 道具/武器在 4 格轮盘中的分类枚举 (0:上, 1:右, 2:下, 3:左)
+ */
+UENUM(BlueprintType)
+enum class E_PropCategory : uint8
+{
+	Weapon = 0       UMETA(DisplayName = "武器 / Weapon"),
+	Special = 1      UMETA(DisplayName = "特殊装备 / Special"),
+	Gadget = 2       UMETA(DisplayName = "道具 / Gadget"),
+	MeleeSidearm = 3 UMETA(DisplayName = "近战副武器 / Melee & Sidearm")
+};
+
+/**
  * FPS 第一人称动画、物理计算与战斗辅助函数库
  */
 UCLASS()
@@ -216,4 +228,11 @@ public:
 		int32& OutSectorIndex,
 		bool& bOutInDeadZone
 	);
+
+	/**
+	 * 获取未受 TimeDilation 缩放的引擎真实绝对时间步长（秒）
+	 * 供 UI 在 0.15x 子弹时间下执行平滑插值（InterpTo）
+	 */
+	UFUNCTION(BlueprintPure, Category = "FPS|Math", meta = (DisplayName = "CFLF_GetUnscaledDeltaTime", Keywords = "Unscaled DeltaTime RealTime App CFLF"))
+	static float CFLF_GetUnscaledDeltaTime();
 };
