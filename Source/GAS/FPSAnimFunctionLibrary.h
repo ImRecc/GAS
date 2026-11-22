@@ -235,4 +235,108 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "FPS|Math", meta = (DisplayName = "CFLF_GetUnscaledDeltaTime", Keywords = "Unscaled DeltaTime RealTime App CFLF"))
 	static float CFLF_GetUnscaledDeltaTime();
+
+	/**
+	 * 控制器后坐力单帧步进解算（带自动回正与玩家压枪防对抗保护）
+	 * - 开火时：外部向 TargetRecoilOffset 累加 (RandomYaw, KickPitch)，再由本函数每帧平滑施加上抬与回正。
+	 * - 防抢鼠标：当玩家主动下拉鼠标（PlayerLookPitchInput > 0）时，自动抵消等量待回正角。
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|Recoil", meta = (DisplayName = "CFLF_StepSpringRecoil", Keywords = "Recoil Controller Spring Recovery AntiFight CFLF"))
+	static void CFLF_StepSpringRecoil(
+		UPARAM(ref) FVector2D& CurrentRecoilOffset,
+		UPARAM(ref) FVector2D& TargetRecoilOffset,
+		float PlayerLookPitchInput,
+		float DeltaTime,
+		float KickInterpSpeed,
+		float RecoverySpeed,
+		float& OutDeltaYawInput,
+		float& OutDeltaPitchInput
+	);
+
+	/**
+	 * 将单发开火后坐力冲量直接注入现有二阶欠阻尼手部弹簧状态（Momentum Kick）
+	 * 严格适配 ComponentSpace 手臂骨骼映射：X=上下抬头/仰角, Y=前后冲退, Z=左右横摆
+	 * 不修改 CFLF_solveDualSpringSway 签名，自动与 Hand Sway 和落地重锤融为一体。
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|Anim", meta = (DisplayName = "CFLF_InjectRecoilSpringImpulse", Keywords = "Recoil Spring Impulse Anim Momentum Kick CFLF", KickRotVelocityScale = "22.0", KickTransVelocityScale = "18.0", MaxRotVelocity = "450.0", MaxTransVelocity = "120.0"))
+	static void CFLF_InjectRecoilSpringImpulse(
+		UPARAM(ref) FVectorSpringState& RotSpringState,
+		UPARAM(ref) FVectorSpringState& TransSpringState,
+		const FTransform& RecoilImpulse,
+		float KickRotVelocityScale = 22.0f,
+		float KickTransVelocityScale = 18.0f,
+		float MaxRotVelocity = 450.0f,
+		float MaxTransVelocity = 120.0f
+	);
+
+	/**
+	 * 在命中点生成瞬态无阴影爆闪点光源（用于非 Lumen 场景下击中瞬间环境闪光反馈）
+	 * 自动在指定寿命内自毁，不产生额外 Actor，性能零负担。
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|Combat", meta = (WorldContext = "WorldContextObject", DisplayName = "CFLF_SpawnImpactFlash", Keywords = "Impact Flash Light Bullet Hit CFLF"))
+	static void CFLF_SpawnImpactFlash(
+		const UObject* WorldContextObject,
+		FVector HitLocation,
+		FVector HitNormal,
+		FLinearColor LightColor = FLinearColor(0.08f, 0.88f, 1.0f),
+		float Intensity = 4500.0f,
+		float Radius = 380.0f,
+		float LifeTime = 0.08f
+	);
+
+	/**
+	 * 武器后坐力 2.0 独立物理二阶弹簧解算器 (人话物理参数版)
+	 * 采用闭式控制论公式由 ReturnTimeSec 与 Bounciness 自动反算刚度与初速度
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|Recoil|V2", meta = (DisplayName = "CFLF_SolveRecoilSpringV2", Keywords = "Recoil Spring V2 Human CFLF", ReturnTimeSec = "0.18", Bounciness = "0.25"))
+	static void CFLF_SolveRecoilSpringV2(
+		bool bTriggerRecoil,
+		float KickBackCm,
+		float KickUpDeg,
+		float KickSideDeg,
+		float ReturnTimeSec,
+		float Bounciness,
+		float DeltaTime,
+		const FRotator& CurrentRecoilRot,
+		const FVector& CurrentRecoilTrans,
+		UPARAM(ref) FVectorSpringState& RecoilRotSpringState,
+		UPARAM(ref) FVectorSpringState& RecoilTransSpringState,
+		FRotator& OutRecoilRot,
+		FVector& OutRecoilTrans
+	);
+
+	/**
+	 * 手部物理摇晃 2.0 独立解算器 (人话物理参数版)
+	 * 整合转头滞后、移动惯性、跳跃下落、落地重锤与 8 字形步态，由 FollowTimeSec 与 SwayBounciness 驱动
+	 * 落地冲击采用独立的 LandingSpringState 按 LandingReturnTimeSec 解算，最后叠加输出
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|HandSway|V2", meta = (DisplayName = "CFLF_SolveHandSwayV2", Keywords = "HandSway Spring V2 Human CFLF", LookMaxYawDeg = "5.6", LookMaxPitchDeg = "4.4", StrafeTiltDeg = "2.0", LandingDropCm = "4.5", LandingReturnTimeSec = "0.25", BobAmplitudeCm = "0.66", StepsPerSecond = "1.5", FollowTimeSec = "0.85", SwayBounciness = "0.0"))
+	static void CFLF_SolveHandSwayV2(
+		float LookMaxYawDeg,
+		float LookMaxPitchDeg,
+		float StrafeTiltDeg,
+		float LandingDropCm,
+		float LandingReturnTimeSec,
+		float BobAmplitudeCm,
+		float StepsPerSecond,
+		float FollowTimeSec,
+		float SwayBounciness,
+		const FRotator& CurrentAimRot,
+		UPARAM(ref) FRotator& LastAimRot,
+		const FVector& CurrentLocalVel,
+		UPARAM(ref) FVector& LastLocalVel,
+		float InWalkPhase,
+		bool bIsFalling,
+		float DeltaTime,
+		const FRotator& CurrentSwayRot,
+		const FVector& CurrentSwayTrans,
+		UPARAM(ref) FVectorSpringState& SwayRotSpringState,
+		UPARAM(ref) FVectorSpringState& SwayTransSpringState,
+		UPARAM(ref) FVectorSpringState& LandingSpringState,
+		UPARAM(ref) FVector& CurrentLandOffset,
+		float& OutWalkPhase,
+		FRotator& OutSwayRot,
+		FVector& OutSwayTrans,
+		bool& bOutFootstepTrigger
+	);
 };

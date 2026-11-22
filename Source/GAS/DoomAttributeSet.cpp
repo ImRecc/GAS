@@ -13,7 +13,7 @@ UDoomAttributeSet::UDoomAttributeSet()
 	InitMaxJumpCount(2.0f);
 	InitDashCount(2.0f);
 	InitMaxDashCount(2.0f);
-	InitDashPower(2000.0f);
+	InitDashPower(800.0f);
 	InitJumpPower(600.0f);
 }
 

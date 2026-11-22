@@ -16,6 +16,8 @@
 #include "CollisionQueryParams.h"
 #include "Engine/OverlapResult.h"
 #include "Misc/App.h"
+#include "Components/PointLightComponent.h"
+#include "TimerManager.h"
 
 // ============================================================================
 // 内部常量：用于从 CFLF_calMoveImpulseTarget 向 CFLF_solveDualSpringSway 
@@ -980,5 +982,426 @@ float UFPSAnimFunctionLibrary::CFLF_GetUnscaledDeltaTime()
 {
 	return FApp::GetDeltaTime();
 }
+
+// ----------------------------------------------------------------------------
+// 14. 控制器后坐力单帧步进解算（带自动回正与玩家压枪防对抗保护）
+// ----------------------------------------------------------------------------
+void UFPSAnimFunctionLibrary::CFLF_StepSpringRecoil(
+	FVector2D& CurrentRecoilOffset,
+	FVector2D& TargetRecoilOffset,
+	float PlayerLookPitchInput,
+	float DeltaTime,
+	float KickInterpSpeed,
+	float RecoverySpeed,
+	float& OutDeltaYawInput,
+	float& OutDeltaPitchInput)
+{
+	if (DeltaTime <= KINDA_SMALL_NUMBER)
+	{
+		OutDeltaYawInput = 0.0f;
+		OutDeltaPitchInput = 0.0f;
+		return;
+	}
+
+	// 1. 防抢鼠标保护：玩家主动下拉压枪（PlayerLookPitchInput > 0）时，抵消待回正的 Pitch 偏移
+	if (PlayerLookPitchInput > 0.0f && CurrentRecoilOffset.Y > 0.0f)
+	{
+		const float Cancelled = FMath::Min(CurrentRecoilOffset.Y, PlayerLookPitchInput);
+		CurrentRecoilOffset.Y -= Cancelled;
+		TargetRecoilOffset.Y = FMath::Max(0.0f, TargetRecoilOffset.Y - Cancelled);
+	}
+
+	const FVector2D PrevOffset = CurrentRecoilOffset;
+
+	// 2. 目标偏移平滑衰减回 0（触发自动回正）
+	const float SafeRecoverySpeed = FMath::Max(0.1f, RecoverySpeed);
+	TargetRecoilOffset = FMath::Vector2DInterpTo(TargetRecoilOffset, FVector2D::ZeroVector, DeltaTime, SafeRecoverySpeed);
+
+	// 3. 当前偏移高速追赶目标（上冲快、回正稳）
+	const float SafeKickSpeed = FMath::Max(0.1f, KickInterpSpeed);
+	const float ActiveSpeed = (TargetRecoilOffset.SizeSquared() > CurrentRecoilOffset.SizeSquared())
+		? SafeKickSpeed
+		: SafeRecoverySpeed;
+	CurrentRecoilOffset = FMath::Vector2DInterpTo(CurrentRecoilOffset, TargetRecoilOffset, DeltaTime, ActiveSpeed);
+
+	// 4. 输出本帧相对增量（UE5 中负 Pitch = 抬头，因此取反）
+	const FVector2D Delta = CurrentRecoilOffset - PrevOffset;
+	OutDeltaYawInput = Delta.X;
+	OutDeltaPitchInput = -Delta.Y;
+}
+
+// ----------------------------------------------------------------------------
+// 15. 动画后坐力冲量注入现有二阶欠阻尼手部弹簧状态
+// 严格遵守 ComponentSpace 约定：
+// - RotSpringState: X = 上下俯仰 (抬头/低头), Y = 左右侧翻, Z = 左右横摆
+// - TransSpringState: X = 左右平移, Y = 前后冲退, Z = 上下沉浮
+// ----------------------------------------------------------------------------
+void UFPSAnimFunctionLibrary::CFLF_InjectRecoilSpringImpulse(
+	FVectorSpringState& RotSpringState,
+	FVectorSpringState& TransSpringState,
+	const FTransform& RecoilImpulse,
+	float KickRotVelocityScale,
+	float KickTransVelocityScale,
+	float MaxRotVelocity,
+	float MaxTransVelocity)
+{
+	const FVector RawTrans = RecoilImpulse.GetLocation();
+	const FRotator RawRot = RecoilImpulse.GetRotation().Rotator();
+
+	// 1. 轴向精准对齐 Component Space 骨骼映射：
+	//    - 枪口上跳 (RawRot.Pitch) 注入给 X 轴 (真正驱动枪口上下俯仰/抬头！)
+	//    - 枪身侧倾 (RawRot.Roll)  注入给 Y 轴 (驱动左右侧倾)
+	//    - 枪口横摆 (RawRot.Yaw)   注入给 Z 轴 (驱动左右摆动)
+	const FVector AlignedRotKick(
+		RawRot.Pitch * KickRotVelocityScale,
+		RawRot.Roll  * KickRotVelocityScale,
+		RawRot.Yaw   * KickRotVelocityScale
+	);
+
+	//    - 枪身后冲映射到 Y 轴 (前后冲退)
+	//      兼容检查：若 RawTrans.Y 接近 0 而 RawTrans.X 非零，说明生成端将冲退给在 X 轴上
+	float BackTrans = RawTrans.Y;
+	if (FMath::IsNearlyZero(BackTrans) && !FMath::IsNearlyZero(RawTrans.X))
+	{
+		BackTrans = RawTrans.X;
+	}
+
+	const FVector AlignedTransKick(
+		RawTrans.X * KickTransVelocityScale, // 左右微移
+		BackTrans  * KickTransVelocityScale, // 前后冲退
+		RawTrans.Z * KickTransVelocityScale  // 上下微移
+	);
+
+	// 2. 速度冲量注入二阶弹簧（产生真实欠阻尼物理回弹）
+	RotSpringState.Velocity += AlignedRotKick;
+	TransSpringState.Velocity += AlignedTransKick;
+
+	// 3. 安全极值钳制（高射速扫射也绝不穿模甩飞）
+	const float SafeMaxRot = FMath::Max(10.0f, MaxRotVelocity);
+	const float SafeMaxTrans = FMath::Max(5.0f, MaxTransVelocity);
+	RotSpringState.Velocity = RotSpringState.Velocity.GetClampedToMaxSize(SafeMaxRot);
+	TransSpringState.Velocity = TransSpringState.Velocity.GetClampedToMaxSize(SafeMaxTrans);
+}
+
+// ----------------------------------------------------------------------------
+// 16. 命中点瞬态无阴影爆闪点光源
+// ----------------------------------------------------------------------------
+void UFPSAnimFunctionLibrary::CFLF_SpawnImpactFlash(
+	const UObject* WorldContextObject,
+	FVector HitLocation,
+	FVector HitNormal,
+	FLinearColor LightColor,
+	float Intensity,
+	float Radius,
+	float LifeTime)
+{
+	if (!WorldContextObject)
+	{
+		return;
+	}
+
+	UWorld* World = nullptr;
+	if (WorldContextObject)
+	{
+		World = WorldContextObject->GetWorld();
+	}
+	if (!World && GEngine)
+	{
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			if (Context.WorldType == EWorldType::Game || Context.WorldType == EWorldType::PIE)
+			{
+				World = Context.World();
+				if (World)
+				{
+					break;
+				}
+			}
+		}
+	}
+	if (!World)
+	{
+		return;
+	}
+
+	// 沿法线稍微偏移 12cm，防止光源嵌入几何体产生死角
+	const FVector SpawnLoc = HitLocation + (HitNormal.GetSafeNormal() * 12.0f);
+
+	UPointLightComponent* LightComp = NewObject<UPointLightComponent>(World->GetWorldSettings());
+	if (!LightComp)
+	{
+		return;
+	}
+
+	LightComp->RegisterComponentWithWorld(World);
+	LightComp->SetWorldLocation(SpawnLoc);
+	LightComp->SetLightColor(LightColor);
+	LightComp->SetIntensity(Intensity);
+	LightComp->SetAttenuationRadius(Radius);
+	LightComp->SetCastShadows(false); // 铁律：绝对不开阴影，性能近乎免费
+	LightComp->bUseInverseSquaredFalloff = false; // 柔和线性衰减
+
+	// 定时自毁
+	FTimerHandle Handle;
+	const float SafeLife = FMath::Max(0.02f, LifeTime);
+	World->GetTimerManager().SetTimer(Handle, [LightComp]()
+	{
+		if (IsValid(LightComp))
+		{
+			LightComp->DestroyComponent();
+		}
+	}, SafeLife, false);
+}
+
+// ----------------------------------------------------------------------------
+// 17. 武器后坐力 2.0 独立物理二阶弹簧解算器 (人话物理参数版)
+// ----------------------------------------------------------------------------
+void UFPSAnimFunctionLibrary::CFLF_SolveRecoilSpringV2(
+	bool bTriggerRecoil,
+	float KickBackCm,
+	float KickUpDeg,
+	float KickSideDeg,
+	float ReturnTimeSec,
+	float Bounciness,
+	float DeltaTime,
+	const FRotator& CurrentRecoilRot,
+	const FVector& CurrentRecoilTrans,
+	FVectorSpringState& RecoilRotSpringState,
+	FVectorSpringState& RecoilTransSpringState,
+	FRotator& OutRecoilRot,
+	FVector& OutRecoilTrans)
+{
+	const float SafeDeltaTime = FMath::Max(DeltaTime, 0.0001f);
+	const float SafeReturnTime = FMath::Max(0.05f, ReturnTimeSec);
+	const float ClampedBounciness = FMath::Clamp(Bounciness, 0.0f, 1.0f);
+
+	// 1. 弹性 -> 阻尼比 (0.0=1.0 临界阻尼无余震, 1.0=0.45 强欠阻尼)
+	const float Zeta = FMath::Lerp(1.0f, 0.45f, ClampedBounciness);
+
+	// 2. 回中时间 -> 自然角频率与刚度
+	const float OmegaN = 4.0f / (Zeta * SafeReturnTime);
+	const float Stiffness = OmegaN * OmegaN;
+
+	// 3. 击发瞬间初速度脉冲注入 (单帧脉冲)
+	if (bTriggerRecoil)
+	{
+		const float VelocityFactor = OmegaN * (1.0f + 1.718f * Zeta);
+
+		// 枪口上跳 KickUpDeg -> RotState.Velocity.X (Component Space Roll 俯仰)
+		// 符号取反 (加负号)：使其开火时枪口向上扬起而非下压
+		const float V0_Pitch = -KickUpDeg * VelocityFactor;
+
+		// 左右随机抖动 ±KickSideDeg -> RotState.Velocity.Z (Yaw 横摆) 与 0.4x 侧翻 (Velocity.Y)
+		const float RandomSide = FMath::FRandRange(-KickSideDeg, KickSideDeg);
+		const float V0_Yaw = RandomSide * VelocityFactor;
+		const float V0_Roll = V0_Yaw * 0.4f;
+
+		// 枪身后冲 -KickBackCm -> TransState.Velocity.Y (Component Space 前后冲退)
+		const float V0_Back = KickBackCm * VelocityFactor;
+
+		RecoilRotSpringState.Velocity.X += V0_Pitch;
+		RecoilRotSpringState.Velocity.Y += V0_Roll;
+		RecoilRotSpringState.Velocity.Z += V0_Yaw;
+
+		RecoilTransSpringState.Velocity.Y += -V0_Back;
+
+		// 安全极值限幅 (高射速连发防穿模甩飞)
+		RecoilRotSpringState.Velocity = RecoilRotSpringState.Velocity.GetClampedToMaxSize(500.0f);
+		RecoilTransSpringState.Velocity = RecoilTransSpringState.Velocity.GetClampedToMaxSize(150.0f);
+	}
+
+	// 4. 二阶弹簧向零点物理积分
+	const FVector CurrentRotVec(CurrentRecoilRot.Roll, CurrentRecoilRot.Pitch, CurrentRecoilRot.Yaw);
+	const FVector NewRotVec = UKismetMathLibrary::VectorSpringInterp(
+		CurrentRotVec, FVector::ZeroVector, RecoilRotSpringState, Stiffness, Zeta, SafeDeltaTime, 1.0f
+	);
+	const FVector NewTransVec = UKismetMathLibrary::VectorSpringInterp(
+		CurrentRecoilTrans, FVector::ZeroVector, RecoilTransSpringState, Stiffness, Zeta, SafeDeltaTime, 1.0f
+	);
+
+	OutRecoilRot.Roll  = NewRotVec.X;
+	OutRecoilRot.Pitch = NewRotVec.Y;
+	OutRecoilRot.Yaw   = NewRotVec.Z;
+
+	OutRecoilTrans = NewTransVec;
+}
+
+// ----------------------------------------------------------------------------
+// 18. 手部物理摇晃 2.0 独立解算器 (人话物理参数版)
+// ----------------------------------------------------------------------------
+void UFPSAnimFunctionLibrary::CFLF_SolveHandSwayV2(
+	float LookMaxYawDeg,
+	float LookMaxPitchDeg,
+	float StrafeTiltDeg,
+	float LandingDropCm,
+	float LandingReturnTimeSec,
+	float BobAmplitudeCm,
+	float StepsPerSecond,
+	float FollowTimeSec,
+	float SwayBounciness,
+	const FRotator& CurrentAimRot,
+	FRotator& LastAimRot,
+	const FVector& CurrentLocalVel,
+	FVector& LastLocalVel,
+	float InWalkPhase,
+	bool bIsFalling,
+	float DeltaTime,
+	const FRotator& CurrentSwayRot,
+	const FVector& CurrentSwayTrans,
+	FVectorSpringState& SwayRotSpringState,
+	FVectorSpringState& SwayTransSpringState,
+	FVectorSpringState& LandingSpringState,
+	FVector& CurrentLandOffset,
+	float& OutWalkPhase,
+	FRotator& OutSwayRot,
+	FVector& OutSwayTrans,
+	bool& bOutFootstepTrigger)
+{
+	// 1. Clamp 到 0.033f (30fps 下限步长)，防止掉帧突发大 DeltaTime 引起弹簧数值爆炸飞手
+	const float SafeDeltaTime = FMath::Clamp(DeltaTime, 0.0001f, 0.033f);
+	const float SafeFollowTime = FMath::Max(0.08f, FollowTimeSec);
+	const float ClampedBounciness = FMath::Clamp(SwayBounciness, 0.0f, 1.0f);
+
+	// 2. 使用 CurrentLandOffset 先还原纯常态值（消除正反馈死循环）
+	const float PureCurrentRotRoll = CurrentSwayRot.Roll - CurrentLandOffset.X;
+	const FVector PureCurrentTrans = CurrentSwayTrans - FVector(0.0f, CurrentLandOffset.Y, CurrentLandOffset.Z);
+
+	// 3. 常态摇晃跟手时间与弹性 -> 刚度与阻尼
+	const float Zeta = FMath::Lerp(1.0f, 0.45f, ClampedBounciness);
+	const float OmegaN = 4.0f / (Zeta * SafeFollowTime);
+	const float Stiffness = OmegaN * OmegaN;
+
+	// 4. 视角转动滞后 (按 200 deg/s 归一化)
+	const FRotator DeltaAimRot = (CurrentAimRot - LastAimRot).GetNormalized();
+	LastAimRot = CurrentAimRot;
+
+	const float PitchNorm = FMath::Clamp(DeltaAimRot.Pitch / (SafeDeltaTime * 200.0f), -1.0f, 1.0f);
+	const float YawNorm   = FMath::Clamp(DeltaAimRot.Yaw   / (SafeDeltaTime * 200.0f), -1.0f, 1.0f);
+
+	const float LookTargetRoll   = -PitchNorm * LookMaxPitchDeg;
+	const float LookTargetPitch  = -YawNorm   * (LookMaxYawDeg * 0.4f);
+	const float LookTargetYaw    = -YawNorm   * LookMaxYawDeg;
+	const float LookTargetTransX = -YawNorm   * 1.5f;
+	const float LookTargetTransZ =  PitchNorm * 1.0f;
+
+	// 5. 移动加减速惯性 (按 2000 cm/s² 归一化)
+	const FVector2D Accel2D = FVector2D(
+		(CurrentLocalVel.X - LastLocalVel.X) / SafeDeltaTime,
+		(CurrentLocalVel.Y - LastLocalVel.Y) / SafeDeltaTime
+	).GetClampedToMaxSize(4000.0f);
+
+	const float NormAccelForward = Accel2D.X / 2000.0f;
+	const float NormAccelRight   = Accel2D.Y / 2000.0f;
+
+	const float MoveTargetPitch  = -NormAccelRight   * StrafeTiltDeg;
+	const float MoveTargetYaw    = -NormAccelRight   * (StrafeTiltDeg * 0.35f);
+	const float MoveTargetRoll   = -NormAccelForward * 1.0f;
+	const float MoveTargetTransX = -NormAccelRight   * 1.5f;
+	const float MoveTargetTransY = -NormAccelForward * 1.5f;
+
+	// 6. 跳跃空中抛物线 (走 FollowTimeSec) 与独立落地重锤初速度注入
+	float AirRoll = 0.0f;
+	float AirTransZ = 0.0f;
+
+	const float DeltaVz = CurrentLocalVel.Z - LastLocalVel.Z;
+	const bool bJustLanded = (!bIsFalling) && (LastLocalVel.Z < -120.0f) && (DeltaVz > 120.0f);
+
+	const float Zeta_Land = 1.0f; // 临界阻尼 (零过冲去弹性，消除弹簧手)
+	const float SafeLandReturnTime = FMath::Max(0.05f, LandingReturnTimeSec);
+	const float OmegaN_Land = 4.0f / (Zeta_Land * SafeLandReturnTime);
+	const float Stiffness_Land = OmegaN_Land * OmegaN_Land;
+
+	if (bIsFalling)
+	{
+		const float AirRatio = FMath::Clamp(CurrentLocalVel.Z / 600.0f, -1.5f, 1.2f);
+		AirRoll   = AirRatio * (-0.15f * LookMaxPitchDeg);
+		AirTransZ = AirRatio * (-0.2f  * LandingDropCm);
+	}
+	else if (bJustLanded)
+	{
+		const float ImpactRatio = FMath::Clamp(-LastLocalVel.Z / 600.0f, 0.25f, 1.0f);
+		const float V_Drop = -LandingDropCm * ImpactRatio * OmegaN_Land * (1.0f + 1.718f * Zeta_Land);
+
+		// 注入独立落地短弹簧：
+		LandingSpringState.Velocity.X += -V_Drop * 1.2f; // 低头下顿
+		LandingSpringState.Velocity.Y += V_Drop * 0.3f;  // 向后微缩
+		LandingSpringState.Velocity.Z += V_Drop;         // 向下沉降
+	}
+	LastLocalVel = CurrentLocalVel;
+
+	// 7. 使用安全的 VectorSpringInterp 独立更新落地短弹簧，写回 CurrentLandOffset 并做 [-8, 8] 硬限幅
+	const FVector NewLandPos = UKismetMathLibrary::VectorSpringInterp(
+		CurrentLandOffset, FVector::ZeroVector, LandingSpringState, Stiffness_Land, Zeta_Land, SafeDeltaTime, 1.0f
+	);
+
+	CurrentLandOffset = FVector(
+		FMath::Clamp(NewLandPos.X, -8.0f, 8.0f),
+		FMath::Clamp(NewLandPos.Y, -8.0f, 8.0f),
+		FMath::Clamp(NewLandPos.Z, -8.0f, 8.0f)
+	);
+
+	// 8. 步态 8 字形呼吸起伏 (李萨如曲线)
+	const float Speed2D = FVector2D(CurrentLocalVel.X, CurrentLocalVel.Y).Size();
+	const float AlphaMove = ((!bIsFalling) && Speed2D > 15.0f)
+		? FMath::Clamp(Speed2D / 600.0f, 0.0f, 1.2f)
+		: 0.0f;
+
+	const float StepRadPerSec = FMath::Max(0.5f, StepsPerSecond) * 2.0f * PI;
+	const float PhaseNew = FMath::Fmod(InWalkPhase + SafeDeltaTime * StepRadPerSec * AlphaMove, 6.2831853f);
+	OutWalkPhase = PhaseNew;
+
+	bOutFootstepTrigger = (FMath::Sin(2.0f * InWalkPhase) < 0.0f) && (FMath::Sin(2.0f * PhaseNew) >= 0.0f);
+
+	const float WaveH = FMath::Cos(PhaseNew) * AlphaMove;
+	const float WaveV = FMath::Sin(2.0f * PhaseNew) * AlphaMove;
+
+	const float BobRoll   = WaveV * (BobAmplitudeCm * 2.0f);
+	const float BobPitch  = WaveH * (-BobAmplitudeCm * 2.5f);
+	const float BobYaw    = WaveH * (BobAmplitudeCm * 2.2f);
+	const float BobTransX = WaveH * (BobAmplitudeCm * 0.8f);
+	const float BobTransZ = WaveV * BobAmplitudeCm;
+
+	// 9. 三路目标求和与极限几何钳制 (常态摇晃)
+	const FVector RawTargetRot(
+		LookTargetRoll  + MoveTargetRoll  + AirRoll + BobRoll,
+		LookTargetPitch + MoveTargetPitch + BobPitch,
+		LookTargetYaw   + MoveTargetYaw   + BobYaw
+	);
+	const FVector ClampedTargetRot(
+		FMath::Clamp(RawTargetRot.X, -12.0f, 12.0f),
+		FMath::Clamp(RawTargetRot.Y, -12.0f, 12.0f),
+		FMath::Clamp(RawTargetRot.Z, -18.0f, 18.0f)
+	);
+
+	const FVector RawTargetTrans(
+		LookTargetTransX + MoveTargetTransX + BobTransX,
+		MoveTargetTransY,
+		LookTargetTransZ + AirTransZ + BobTransZ
+	);
+	const FVector ClampedTargetTrans(
+		FMath::Clamp(RawTargetTrans.X, -4.0f, 4.0f),
+		FMath::Clamp(RawTargetTrans.Y, -4.0f, 4.0f),
+		FMath::Clamp(RawTargetTrans.Z, -7.0f, 6.0f)
+	);
+
+	// 10. 二阶弹簧数值积分 (输入纯常态姿态)
+	const FVector CurrentRotVec(PureCurrentRotRoll, CurrentSwayRot.Pitch, CurrentSwayRot.Yaw);
+	const FVector NewRotVec = UKismetMathLibrary::VectorSpringInterp(
+		CurrentRotVec, ClampedTargetRot, SwayRotSpringState, Stiffness, Zeta, SafeDeltaTime, 1.0f
+	);
+	const FVector NewTransVec = UKismetMathLibrary::VectorSpringInterp(
+		PureCurrentTrans, ClampedTargetTrans, SwayTransSpringState, Stiffness, Zeta, SafeDeltaTime, 1.0f
+	);
+
+	// 11. 常态摇晃结果与硬限幅独立落地短弹簧结果直接相加输出 (无需额外骨骼节点)
+	OutSwayRot.Roll  = NewRotVec.X + CurrentLandOffset.X;
+	OutSwayRot.Pitch = NewRotVec.Y;
+	OutSwayRot.Yaw   = NewRotVec.Z;
+
+	OutSwayTrans = NewTransVec + FVector(0.0f, CurrentLandOffset.Y, CurrentLandOffset.Z);
+}
+
+
+
 
 
