@@ -40,15 +40,7 @@ public:
 	FGameplayAttributeData MaxJumpCount;
 	ATTRIBUTE_ACCESSORS(UDoomAttributeSet, MaxJumpCount)
 
-	UPROPERTY(BlueprintReadOnly, Category = "Attributes")
-	FGameplayAttributeData JumpPower;
-	ATTRIBUTE_ACCESSORS(UDoomAttributeSet, JumpPower)
-
 	// --- Dash ---
-	UPROPERTY(BlueprintReadOnly, Category = "Attributes")
-	FGameplayAttributeData DashPower;
-	ATTRIBUTE_ACCESSORS(UDoomAttributeSet, DashPower)
-
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes")
 	FGameplayAttributeData DashCount;
 	ATTRIBUTE_ACCESSORS(UDoomAttributeSet, DashCount)

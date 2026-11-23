@@ -15,9 +15,9 @@
 | 模块分类 | 功能名称 | 核心实现方式 | 物理文件 / 资产引用路径 | 当前状态 |
 | :--- | :--- | :--- | :--- | :--- |
 | **角色基类** | 移动属性与死亡分发 | C++ 继承 `ACharacter` + `IAbilitySystemInterface`，内置 1.4s 串行 Dash 充能计时器与 `OnCharacterDeath` 事件 | `Source/GAS/DoomBaseCharacter.h/.cpp` | 已落地并验证 |
-| **GAS 属性集** | 属性与生命周期门禁 | C++ 管理 `Health`, `MaxHealth`, `JumpCount`, `DashCount`，在 `PostGameplayEffectExecute` 中钳制并触发死亡 | `Source/GAS/DoomAttributeSet.h/.cpp` | 已落地并验证 |
+| **GAS 属性集** | 属性与生命周期门禁 | C++ 管理核心 6 项数值 (`Health`, `MaxHealth`, `JumpCount`, `MaxJumpCount`, `DashCount`, `MaxDashCount`)，移除多余物理冲量属性 | `Source/GAS/DoomAttributeSet.h/.cpp` | 瘦身优化验证完毕 |
 | **玩家蓝图** | 输入与机动状态机 | 继承 `ADoomBaseCharacter`，Enhanced Input 映射，GAS 驱动 Dash、滑铲 (Slide)、蹬墙跳 (WallJump) | `/Game/bps/BP_PlayerCharacter` | 已完成 |
-| **手部动画** | 虚拟枪骨与程序化惯性 | 虚拟枪骨 `ik_hand_gun` 架构 + FABRIK 左手跟随 + 4 个 C++ `CFLF_` 纯数学函数 + `Transform(Modify)Bone` (Additive) | `/Game/FirstPersonArms/customAnim/ABP_arms`<br>`Source/GAS/FPSAnimFunctionLibrary.h/.cpp` | 手感调优完毕 |
+| **手部动画** | 虚拟枪骨与程序化惯性 2.0 | 虚拟枪骨 `ik_hand_gun` 架构 + 手腕 `hand_r` 独立后坐力 + 2.0 聚合解算器 (`CFLF_SolveHandSwayV2` / `CFLF_SolveRecoilSpringV2`) | `/Game/FirstPersonArms/customAnim/ABP_arms`<br>`Source/GAS/FPSAnimFunctionLibrary.h`<br>`Source/GAS/FPSAnimFunctionLibrary_Arms.cpp` | 2.0 调优完毕 |
 | **武器中枢** | 装备管理与后坐力路由 | ActorComponent 负责武器挂载、插槽同步、开火接口路由与 UI 轮盘通信 | `/Game/bps/gameplayEffect-Ability/equipmentSys/BPAC_propManager` | 已完成 |
 | **枪械实装** | 加特林机枪与全自动射击 | 继承 `BPCA_weaponBase`，通过 `GA_automatical` 与 `GA_tGatlinShot` 循环触发开火与伤害 | `/Game/bps/gameplayEffect-Ability/equipmentSys/props/utilities/weapons/BPCA_gatlingGun` | 可射击验证 |
 | **伤害与掉落** | 统一伤害与花瓣抛洒 | C++ `CFLF_ApplyDamageToTarget`（优先 GAS GE 负数扣血，Fallback 引擎原生）+ `CFLF_SpawnScatteredPickups` | `Source/GAS/FPSAnimFunctionLibrary.h` | 已集成至死怪与爆炸 |
@@ -94,21 +94,30 @@ flowchart TD
 
 ## 4. C++ 函数库快速索引表 (`UFPSAnimFunctionLibrary`)
 
-| 函数名称 (DisplayName) | 核心算法与数据流 | 典型调用方与微调滑杆 |
-| :--- | :--- | :--- |
-| **`CFLF_calLookDragTarget`** | 角度差分算角速度 + 独立轴限幅与符号映射 (组件空间 Roll/Pitch/Yaw) | `ABP_arms` / `LookSwayStrength` (强度), `MaxAngularSpeed` (转速硬上限) |
-| **`CFLF_calMoveImpulseTarget`** | 水平加速度差分 + 空中抛物线上浮 + 落地负向特征码编码 | `ABP_arms` / `SideSwayStrength` (起停横移侧翻幅度) |
-| **`CFLF_calWalkBobbingTarget`** | 步频驱动李萨如 8 字波 ($\sin(2\theta)$ 纵向 2x 颠簸, $\cos(\theta)$ 横向 1x 晃动) | `ABP_arms` / `StepFrequency` (步频), `BobStrength` (幅度) |
-| **`CFLF_solveDualSpringSway`** | 落地冲量解码 + 落地重锤直注速度 + 向量弹簧积分 (`VectorSpringInterp`) | `ABP_arms` / `Stiffness` (刚度), `DampingRatio` (阻尼比) |
-| **`CFLF_ApplyDamageToTarget`** | 自动查找 ASC + 挂载 `GE_Damage` (`Data.Damage` 负数赋值) + 原生 Fallback | 武器/技能 / `DamageAmount` (伤害数值) |
-| **`CFLF_GiveAbilityToActor`** | 技能卡带动态插入，自动查重避免重复注册 | `ADoomBaseCharacter` / `AbilityClass` (技能蓝图类) |
-| **`CFLF_SpawnScatteredPickups`** | 环形等角度错位分布 + 刚体径向向外与向上冲量 + 随机三轴角冲量 | 角色死亡事件 / `Count`, `ScatterRadius`, `UpwardImpulse` |
-| **`CFLF_SphereDamageHostiles`** | 球形重叠 + `Team.Player` vs `Team.Enemy` 阵营互斥过滤 + 批量伤害 | 近战怪扑击 / `Radius`, `Damage` |
-| **`CFLF_ExplodeRadialDamage`** | 径向爆炸 + 距离线性衰减 (`Dist/Radius`) + 物理刚体冲量炸飞死怪 | 投射物爆炸 / `Radius`, `BaseDamage`, `ImpulseStrength` |
-| **`CFLF_CheckAimAndLineOfSight`** | 眼部到胸部射线 (`ECC_Visibility`) + 水平点积前向夹角判定 | AI 射击前置 / `MaxAngleDegrees` (允许瞄准夹角) |
-| **`CFLF_EvaluateCombatStance`** | 忽略 Z 轴 2D 距离 + 施密特双阈值迟滞（Engage vs Disengage）防频繁踱步 | AI 移动状态机 / `EngageRange` (进入射程), `DisengageRange` (脱离射程) |
-| **`CFLF_CalculateRadialSector`** | 虚拟光标死区截断 + $\text{Atan2}(X, -Y)$ 12点钟对齐顺时针角度 + 半扇区偏置居中整除 | `W_weaponWheel_v2` / `NumSectors` (默认8), `DeadZone` (默认35.0) |
-| **`CFLF_GetUnscaledDeltaTime`** | 读取 `FApp::GetDeltaTime()` 绝对真实时间步长，杜绝 0.15x 子弹时间下 UI 平滑插值变迟钝 | `W_WeaponWheelSlot` / 供 `Vector2DInterpTo` 真实时间驱动 |
+> **物理分文件架构 (类名不变，蓝图 0 断链)**：
+> - 头文件：`Source/GAS/FPSAnimFunctionLibrary.h`（包含 4 个 `#pragma region` 逻辑块）
+> - 实现文件：按 4 大领域拆分为小文件（150~250 行），告别单文件 1400 行时代！
+
+| 领域 / 物理实现文件 | 函数名称 (DisplayName) | 核心算法与数据流 | 典型调用方与微调滑杆 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| **手臂与后坐力**<br>`FPSAnimFunctionLibrary_Arms.cpp` | **`CFLF_SolveHandSwayV2`** | 整合视角滞后+移动加减速+跳跃下沉+8字步态，外加独立落地短弹簧与硬限幅，输入常态扣除消除正反馈死循环 | `ABP_arms` (`F_calHandSwayV2`) / `FollowTimeSec`, `LandingReturnTimeSec`, `LandingDropCm` | 现役 2.0 核心 |
+| **手臂与后坐力**<br>`FPSAnimFunctionLibrary_Arms.cpp` | **`CFLF_SolveRecoilSpringV2`** | 控制论闭式公式根据回正时间与弹性反算刚度，单帧速度脉冲注入 (上扬/后退/横摆)，二阶欠阻尼回中 | `ABP_arms` (`F_calHandSwayV2`) / `ReturnTimeSec`, `Bounciness`, `KickUpDeg`, `KickBackCm` | 现役 2.0 核心 |
+| **手臂与后坐力**<br>`FPSAnimFunctionLibrary_Arms.cpp` | **`CFLF_calLookDragTarget`** | 角度差分算角速度 + 独立轴限幅与符号映射 (组件空间 Roll/Pitch/Yaw) | `customFL` / 供 1.0 老资产过渡兼容 | 1.0 废弃 (保留兼容) |
+| **手臂与后坐力**<br>`FPSAnimFunctionLibrary_Arms.cpp` | **`CFLF_calMoveImpulseTarget`** | 水平加速度差分 + 空中抛物线上浮 + 落地负向特征码编码 | `customFL` / 供 1.0 老资产过渡兼容 | 1.0 废弃 (保留兼容) |
+| **手臂与后坐力**<br>`FPSAnimFunctionLibrary_Arms.cpp` | **`CFLF_calWalkBobbingTarget`** | 步频驱动李萨如 8 字波 ($\sin(2\theta)$ 纵向 2x 颠簸, $\cos(\theta)$ 横向 1x 晃动) | `customFL` / 供 1.0 老资产过渡兼容 | 1.0 废弃 (保留兼容) |
+| **手臂与后坐力**<br>`FPSAnimFunctionLibrary_Arms.cpp` | **`CFLF_solveDualSpringSway`** | 落地冲量解码 + 落地重锤直注速度 + 向量弹簧积分 (`VectorSpringInterp`) | `customFL` / 供 1.0 老资产过渡兼容 | 1.0 废弃 (保留兼容) |
+| **战斗与技能**<br>`FPSAnimFunctionLibrary_Combat.cpp` | **`CFLF_ApplyDamageToTarget`** | 自动查找 ASC + 挂载 `GE_Damage` (`Data.Damage` 负数赋值) + 原生 Fallback | 武器/技能 / `DamageAmount` (伤害数值) | 现役核心 |
+| **战斗与技能**<br>`FPSAnimFunctionLibrary_Combat.cpp` | **`CFLF_GiveAbilityToActor`** | 技能卡带动态插入，自动查重避免重复注册 | `ADoomBaseCharacter` / `AbilityClass` (技能蓝图类) | 现役核心 |
+| **战斗与技能**<br>`FPSAnimFunctionLibrary_Combat.cpp` | **`CFLF_SphereDamageHostiles`** | 球形重叠 + `Team.Player` vs `Team.Enemy` 阵营互斥过滤 + 批量伤害 | 近战怪扑击 / `Radius`, `Damage` | 现役核心 |
+| **战斗与技能**<br>`FPSAnimFunctionLibrary_Combat.cpp` | **`CFLF_ExplodeRadialDamage`** | 径向爆炸 + 距离线性衰减 (`Dist/Radius`) + 物理刚体冲量炸飞死怪 | 投射物爆炸 / `Radius`, `BaseDamage`, `ImpulseStrength` | 现役核心 |
+| **战斗与技能**<br>`FPSAnimFunctionLibrary_Combat.cpp` | **`CFLF_StepSpringRecoil`** | 控制器视角后坐力步进解算，带自动回正与玩家主动下拉压枪抵消防对抗保护 | 视角开火 / `KickInterpSpeed`, `RecoverySpeed` | 现役核心 |
+| **AI 感知与姿态**<br>`FPSAnimFunctionLibrary_AI.cpp` | **`CFLF_CheckAimAndLineOfSight`** | 眼部到胸部射线 (`ECC_Visibility`) + 水平点积前向夹角判定 | AI 射击前置 / `MaxAngleDegrees` (允许瞄准夹角) | 现役核心 |
+| **AI 感知与姿态**<br>`FPSAnimFunctionLibrary_AI.cpp` | **`CFLF_EvaluateCombatStance`** | 忽略 Z 轴 2D 距离 + 施密特双阈值迟滞（Engage vs Disengage）防频繁踱步 | AI 移动状态机 / `EngageRange`, `DisengageRange` | 现役核心 |
+| **UI 与特效**<br>`FPSAnimFunctionLibrary_UI.cpp` | **`CFLF_CalculateRadialSector`** | 虚拟光标死区截断 + $\text{Atan2}(X, -Y)$ 12点钟对齐顺时针角度 + 半扇区偏置居中整除 | `W_weaponWheel_v2` / `NumSectors` (默认8), `DeadZone` (默认35.0) | 现役核心 |
+| **UI 与特效**<br>`FPSAnimFunctionLibrary_UI.cpp` | **`CFLF_GetUnscaledDeltaTime`** | 读取 `FApp::GetDeltaTime()` 绝对真实时间步长，杜绝 0.15x 子弹时间下 UI 平滑插值变迟钝 | `W_WeaponWheelSlot` / 供 `Vector2DInterpTo` 真实时间驱动 | 现役核心 |
+| **UI 与特效**<br>`FPSAnimFunctionLibrary_UI.cpp` | **`CFLF_SpawnScatteredPickups`** | 环形等角度错位分布 + 刚体径向向外与向上冲量 + 随机三轴角冲量 | 角色死亡事件 / `Count`, `ScatterRadius`, `UpwardImpulse` | 现役核心 |
+| **UI 与特效**<br>`FPSAnimFunctionLibrary_UI.cpp` | **`CFLF_SpawnScatteredPickupList`** | 数组化多类掉落物环形花瓣式物理抛洒 | 实体掉落 / `ScatterRadius`, `UpwardImpulse` | 现役核心 |
+| **UI 与特效**<br>`FPSAnimFunctionLibrary_UI.cpp` | **`CFLF_SpawnImpactFlash`** | 命中点瞬态无阴影爆闪点光源，定时自毁无额外 Actor 开销 | 子弹击中 / `HitLocation`, `HitNormal`, `Intensity` | 现役核心 |
 
 ---
 
