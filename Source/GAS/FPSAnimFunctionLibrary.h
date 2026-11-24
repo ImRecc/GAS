@@ -7,10 +7,12 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "GameplayEffectTypes.h"
 #include "GameplayAbilitySpecHandle.h"
+#include "EnemyMovesetData.h"
 #include "FPSAnimFunctionLibrary.generated.h"
 
 class UGameplayEffect;
 class UGameplayAbility;
+class UAbilitySystemComponent;
 
 /**
  * 道具/武器在 4 格轮盘中的分类枚举 (0:上, 1:右, 2:下, 3:左)
@@ -173,13 +175,19 @@ public:
 
 	/**
 	 * 对目标施加统一伤害（自动兼容 GAS ASC 目标与传统 UE 目标）
+	 * @param TargetActor 承受伤害的目标
+	 * @param DamageAmount 扣减生命值数额
+	 * @param InstigatorActor 伤害施加者
+	 * @param DamageGEClass 自定义 GE 类（留空则默认加载 GE_Damage）
+	 * @param HitEventTag 可选受击事件标签（如 Event.Hit.Weakspot，有效时通过 SendGameplayEventToActor 触发受击硬直）
 	 */
-	UFUNCTION(BlueprintCallable, Category = "FPS|Combat", meta = (DisplayName = "CFLF_ApplyDamageToTarget", Keywords = "Damage Apply GAS Hurt Hit CFLF", DamageAmount = "25.0"))
+	UFUNCTION(BlueprintCallable, Category = "FPS|Combat", meta = (DisplayName = "CFLF_ApplyDamageToTarget", Keywords = "Damage Apply GAS Hurt Hit Event CFLF", DamageAmount = "25.0"))
 	static bool CFLF_ApplyDamageToTarget(
 		AActor* TargetActor,
 		float DamageAmount,
-		AActor* InstigatorActor,
-		TSubclassOf<UGameplayEffect> DamageGEClass = nullptr
+		AActor* InstigatorActor = nullptr,
+		TSubclassOf<UGameplayEffect> DamageGEClass = nullptr,
+		FGameplayTag HitEventTag = FGameplayTag()
 	);
 
 	/**
@@ -267,6 +275,57 @@ public:
 		bool bHasLineOfSight,
 		bool& bNewStance,
 		float& OutDistance2D
+	);
+
+	/**
+	 * 单节点采集敌人对目标的实时战斗态势聚合快照 (CFLF_GetEnemyCombatInfo)
+	 * @Purpose 高性能无状态纯函数：聚合 2D 距离、高低差、相对正前方水平夹角、视线遮挡、是否在玩家视野内以及自身血量百分比
+	 * @param EnemyActor 怪物自身 Actor
+	 * @param TargetActor 攻击目标（通常为玩家）
+	 * @param PlayerViewHalfAngleDeg 判定在玩家视野内的视锥半角（度，默认 45°）
+	 * @return 战斗态势结构体快照
+	 */
+	UFUNCTION(BlueprintPure, Category = "FPS|Combat|AI", meta = (DisplayName = "CFLF_GetEnemyCombatInfo", Keywords = "AI Enemy Combat Info Angle Distance LOS View Health CFLF", PlayerViewHalfAngleDeg = "45.0"))
+	static FEnemyCombatInfo CFLF_GetEnemyCombatInfo(
+		const AActor* EnemyActor,
+		const AActor* TargetActor,
+		float PlayerViewHalfAngleDeg = 45.0f
+	);
+
+	/**
+	 * 基于招式配置表与当前战斗态势决策最佳攻击技能 (CFLF_PickBestEnemyMove)
+	 * @Purpose 现代敌人战斗底座核心抽签算法：遍历招式配置表，校验距离、夹角、血量比、独立冷却与 ASC 标签状态，按权重加权随机抽选
+	 * @param MovesetData 怪物持有的招式配置表资产 (UEnemyMovesetData)
+	 * @param CombatInfo 当前帧的战斗态势快照
+	 * @param EnemyASC 怪物的 ASC（用于白名单/黑名单标签匹配，可为 nullptr）
+	 * @param LastUsedTimeMap 各招式的上次施放时间字典（Key: MoveTag, Value: TimeSeconds）
+	 * @param CurrentWorldTime 当前世界时间（秒）
+	 * @param OutSelectedMove 输出抽中的招式规则
+	 * @return 是否成功匹配到合法招式
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FPS|Combat|AI", meta = (DisplayName = "CFLF_PickBestEnemyMove", Keywords = "AI Pick Best Move Moveset Rule Weight Cooldown Tag CFLF"))
+	static bool CFLF_PickBestEnemyMove(
+		const UEnemyMovesetData* MovesetData,
+		const FEnemyCombatInfo& CombatInfo,
+		const UAbilitySystemComponent* EnemyASC,
+		const TMap<FGameplayTag, float>& LastUsedTimeMap,
+		float CurrentWorldTime,
+		FEnemyMoveRule& OutSelectedMove
+	);
+
+	/**
+	 * 单节点查找指定范围内的最近活体敌对目标 (CFLF_FindNearestHostileTarget)
+	 * @Purpose 解锁 Bot vs Bot (BvB) 与多目标动态索敌：遍历活体 Pawn，基于阵营标签比对过滤敌对目标，排除死怪与自身
+	 * @param SelfBot 搜索发起者自身 Actor
+	 * @param MaxSearchRadius 最大水平搜索半径（厘米，默认 5000cm / 50米）
+	 * @param bRequireLineOfSight 是否要求视线畅通（为 true 时进行 ECC_Visibility 射线检测）
+	 * @return 最近的活体敌对目标 Actor（未找到返回 nullptr）
+	 */
+	UFUNCTION(BlueprintPure, Category = "FPS|Combat|AI", meta = (DisplayName = "CFLF_FindNearestHostileTarget", Keywords = "AI Find Nearest Hostile Target Faction Search BvB CFLF", MaxSearchRadius = "5000.0"))
+	static AActor* CFLF_FindNearestHostileTarget(
+		AActor* SelfBot,
+		float MaxSearchRadius = 5000.0f,
+		bool bRequireLineOfSight = false
 	);
 #pragma endregion
 

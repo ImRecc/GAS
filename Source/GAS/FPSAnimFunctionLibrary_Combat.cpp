@@ -16,13 +16,14 @@
 #include "Components/PrimitiveComponent.h"
 
 // ----------------------------------------------------------------------------
-// 对目标施加统一伤害 (自动兼容 GAS ASC 目标与传统 UE 目标)
+// 对目标施加统一伤害 (自动兼容 GAS ASC 目标与传统 UE 目标，支持触发受击 GameplayEvent)
 // ----------------------------------------------------------------------------
 bool UFPSAnimFunctionLibrary::CFLF_ApplyDamageToTarget(
 	AActor* TargetActor,
 	float DamageAmount,
 	AActor* InstigatorActor,
-	TSubclassOf<UGameplayEffect> DamageGEClass)
+	TSubclassOf<UGameplayEffect> DamageGEClass,
+	FGameplayTag HitEventTag)
 {
 	if (!TargetActor || DamageAmount <= 0.0f)
 	{
@@ -54,6 +55,17 @@ bool UFPSAnimFunctionLibrary::CFLF_ApplyDamageToTarget(
 				}
 
 				TargetASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+
+				// 发送受击打断事件（例如 Event.Hit.Weakspot 触发 GA_Enemy_HitReact 打断蓄力与赋予硬直）
+				if (HitEventTag.IsValid())
+				{
+					FGameplayEventData Payload;
+					Payload.EventTag = HitEventTag;
+					Payload.Instigator = InstigatorActor;
+					Payload.Target = TargetActor;
+					Payload.EventMagnitude = DamageAmount;
+					UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(TargetActor, HitEventTag, Payload);
+				}
 
 				if (GEngine)
 				{
