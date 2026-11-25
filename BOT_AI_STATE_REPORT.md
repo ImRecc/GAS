@@ -1,9 +1,10 @@
-# 现代 Bot AI 系统全资产实机扫描与架构评估报告 (BOT_AI_STATE_REPORT.md)
+# 现代 Bot AI 系统全资产清理重构后扫描与交付报告 (BOT_AI_STATE_REPORT.md)
 
-> **数据采集源**：Unreal Editor Live MCP Session (`http://127.0.0.1:8000/mcp`)  
-> **采集时间**：2026-11-24 23:05  
-> **生效工具集**：`editor_toolset.toolsets.blueprint.BlueprintTools`、`state_tree_toolset.toolsets.state_tree.StateTreeTools`  
-> **编制目的**：供 **Neon 架构模型** 审查评估当前虚幻 5.8 工业级 GAS + StateTree + Combat Director 的实机内存蓝图拓扑，诊断潜在逻辑死锁，并指导后续走位机动（Positioning）与挂载落地。
+> **实机执行方式**：Unreal Editor Live MCP Session (`http://127.0.0.1:8000/mcp`)  
+> **扫描时间**：2026-11-25 21:46 (实机运行时直接提取 AST/DSL)  
+> **涉及资产**：`/Game/bps/botAI/` 目录全资产、`/Game/bps/BP_enemyBase`、`/Game/bps/AIC_EnemyBase`  
+> **全局编译状态**：**8 大核心蓝图 + 1 个 StateTree 全量编译通过 (0 错误 0 警告)**  
+> **交付目标**：提交给 **Neon 模型** 评估用户清理后的资产最新状态、结构拓扑与待决策点。
 
 ---
 
@@ -18,25 +19,38 @@ flowchart TD
     subgraph Body ["Bot 物理底盘 (BP_enemyBase)"]
         BC["ADoomBaseCharacter (C++)"] --> BPB["BP_enemyBase (蓝图)"]
         BPB -->|实现| BPI["BPI_BotConfig (解耦接口)<br>• IF_GetBotMoveset<br>• IF_GetBotMoveStyle<br>• IF_GetBotCooldownMap<br>• IF_RecordBotMoveUsed"]
-        BPB -->|存储| Vars["• EnemyMovesetData (招式资产)<br>• MoveStyle (走位枚举)<br>• MoveCooldownMap (冷却字典)"]
+        BPB -->|BeginPlay| AutoLoad["自动装填招式与受击技能<br>• CFLF_GiveAbilityToActor (Moves)<br>• CFLF_GiveAbilityToActor (GA_Enemy_HitReact)"]
+        BPB -->|Death| AutoRelease["死亡立即归还令牌<br>• ReleaseAttackToken (Self)"]
+    end
+
+    subgraph Controller ["AI 控制器双脑分流 (AIC_EnemyBase)"]
+        AIC["AIC_EnemyBase (蓝图)"]
+        Toggle["开关: bUseStateTreeBrain (默认 false)"]
+        Legacy["旧大脑: F_EvaluateAI 循环定时器"]
+        STC["新大脑: StateTreeAIComponent<br>(指向 ST_Enemy_Arena)"]
+
+        AIC --> Toggle
+        Toggle -->|false (向后兼容)| Legacy
+        Toggle -->|true (现代双脑)| STC
     end
 
     subgraph StateTree ["StateTree 通用大脑 (ST_Enemy_Arena)"]
         Schema["StateTreeAIComponentSchema"]
-        Eval["评估器: STE_EnemyCombatContext<br>• CFLF_FindNearestHostileTarget (动态索敌解锁 BvB)<br>• CFLF_GetEnemyCombatInfo (几何/血量态势解算)<br>• 0.1s 采样节流定时器"]
+        Eval["评估器: STE_EnemyCombatContext<br>• Context.Actor / Context.AIController<br>• CFLF_FindNearestHostileTarget (索敌与 BvB 兜底)<br>• CFLF_GetEnemyCombatInfo (几何/血量 10Hz 节流解算)"]
         
-        State_Stagger["① State: Staggered (最高优先级, bIsStaggered == true)<br>Task: STT_EnemyStagger<br>• 停脚 StopMovement<br>• 释放令牌 ReleaseAttackToken<br>• 监听 !bIsStaggered 退出并回到 Root"]
-        State_Attack["② State: Attack (bIsStaggered == false)<br>Task: STT_EnemyAttack<br>• BPI 接口拉取招式与冷却<br>• CFLF_PickBestEnemyMove 选招<br>• TryRequestAttackToken 申请令牌<br>• Make Gameplay Tag Container 激活招式 GA<br>• IF_RecordBotMoveUsed 记录冷却<br>• 成功 -> Root / 失败 -> Positioning"]
-        State_Pos["③ State: Positioning (兜底机动)<br>Task: STT_EnemyPositioning<br>• 依据 MoveStyle 分流 (转向/追击/迟滞)<br>• OnTick (0.25s 延迟) -> 跃迁至 Attack 重试选招"]
+        State_Stagger["① State: Staggered (bIsStaggered == true)<br>Task: STT_EnemyStagger<br>• StopMovement (Context.AIController)<br>• ReleaseAttackToken (Context.Actor)<br>• 监听 !bIsStaggered 自动退出"]
+        State_Attack["② State: Attack (bIsStaggered == false)<br>Task: STT_EnemyAttack<br>• CFLF_PickBestEnemyMove 选招<br>• TryRequestAttackToken (传入 TokenType)<br>• 激活招式 GA 并调用 IF_RecordBotMoveUsed 记录冷却<br>• 0.05s 延时后监听 !State.Enemy.Attacking 退出<br>• ExitState 兜底归还令牌"]
+        State_Pos["③ State: Positioning (机动与占位)<br>Task: STT_EnemyPositioning<br>• 【用户清理现状】：骨架就绪，待连入优雅机动路线<br>• OnTick (0.25s) -> 自动跃迁回 Attack 尝试抽签"]
 
         Eval -->|输出 CombatInfo / bIsStaggered / bIsAttacking| StateTree
         Schema --> State_Stagger
         Schema --> State_Attack
         Schema --> State_Pos
+        STC -.->|驱动| StateTree
     end
 
     subgraph GAS ["GAS 技能打断闭环"]
-        GA_Hit["GA_Enemy_HitReact<br>• 监听 Event.Hit.Weakspot<br>• 赋予 State.Enemy.Staggered<br>• 取消 Ability.Enemy.Attack (硬直打断蓄力)"]
+        GA_Hit["GA_Enemy_HitReact<br>• 监听 Event.Hit.Weakspot<br>• 赋予 State.Enemy.Staggered<br>• 取消 Ability.Enemy.Attack"]
     end
 
     State_Attack -->|申请 / 释放令牌| ECD
@@ -46,240 +60,291 @@ flowchart TD
 
 ---
 
-## 2. Live MCP 资产级图表 DSL 与引脚拓扑实测
+## 2. 实机编译验收汇总清单
 
-### 2.1 `BPI_BotConfig` (通用解耦接口)
-- **文件路径**：`/Game/bps/botAI/BPI_BotConfig`
-- **MCP 提取 DSL 状态**：
-  ```lisp
-  (fn IF_GetBotMoveset () (return 0))
-  (fn IF_GetBotMoveStyle () (return "Stationary"))
-  (fn IF_GetBotCooldownMap () (return 0))
-  (fn IF_RecordBotMoveUsed (MoveTag WorldTime))
-  ```
-- **架构评估**：规范定义的 4 大契约接口。彻底将 AI 任务逻辑与 Character 具体类解耦，任何未来载具、飞行怪、炮台均可通过实现该接口无缝挂载此一套 StateTree。
-
----
-
-### 2.2 `BP_enemyBase` (Bot 物理底盘)
-- **文件路径**：`/Game/bps/BP_enemyBase`
-- **MCP 提取接口实现 DSL**：
-  ```lisp
-  ;; 1. 获取招式库资产
-  (fn IF_GetBotMoveset ()
-    (return (Variables|Default|GetEnemyMovesetData)))
-
-  ;; 2. 获取走位风格 (Stationary / Chase / Skirmish)
-  (fn IF_GetBotMoveStyle ()
-    (return (Variables|Default|GetMoveStyle)))
-
-  ;; 3. 获取冷却字典
-  (fn IF_GetBotCooldownMap ()
-    (return (Variables|Default|GetMoveCooldownMap)))
-
-  ;; 4. 记录招式冷却时间戳 (位于 EventGraph)
-  (event EventIF_RecordBotMoveUsed (MoveTag WorldTime)
-    (Utilities|Map|Add (Variables|Default|GetMoveCooldownMap) MoveTag WorldTime))
-  ```
-- **架构评估**：底盘实现极其纯粹，无任何多余计算。变量全部采用原生类型，`Map.Add` 正确写入冷却记录。
+| 资产路径 | 资产类型 | 用户清理与修复要点 | 编译结果 | 实机状态 |
+| :--- | :--- | :--- | :---: | :---: |
+| `/Game/bps/botAI/BPI_BotConfig` | Interface | 4 大解耦接口定义 | **0 错误** | 正常就绪 |
+| `/Game/bps/botAI/GA_Enemy_HitReact` | GameplayAbility | 受击硬直 0.4s + 结束技能 | **0 错误** | 正常就绪 |
+| `/Game/bps/botAI/STE_EnemyCombatContext` | StateTreeEvaluator | Context 规范 + BvB 索敌 + 0.1s 节流 | **0 错误** | 正常就绪 |
+| `/Game/bps/botAI/STT_EnemyStagger` | StateTreeTask | Context 规范 + 停脚 + 归还令牌 + 标签监听 | **0 错误** | 正常就绪 |
+| `/Game/bps/botAI/STT_EnemyAttack` | StateTreeTask | Context 规范 + TokenType + 冷却记录 + 延时退出 | **0 错误** | 正常就绪 |
+| `/Game/bps/botAI/STT_EnemyPositioning` | StateTreeTask | Context 规范 + 节点清理精简（待 Neon 评估布线） | **0 错误** | 正常就绪 |
+| `/Game/bps/BP_enemyBase` | Character Blueprint | 自动装填招式卡带与受击技能 + 死亡归还令牌 | **0 错误** | 正常就绪 |
+| `/Game/bps/AIC_EnemyBase` | AIController Blueprint | StateTreeAIComponent 挂载 + `bUseStateTreeBrain` 无损双脑开关 | **0 错误** | 正常就绪 |
+| `/Game/bps/botAI/ST_Enemy_Arena` | StateTree | Evaluator + 3 大状态机层级与过渡转移 | **0 错误** | 正常就绪 |
 
 ---
 
-### 2.3 `GA_Enemy_HitReact` (受击硬直与蓄力打断卡带)
-- **文件路径**：`/Game/bps/botAI/GA_Enemy_HitReact`
-- **CDO 配置**：
-  - `TriggerTag` = `Event.Hit.Weakspot` (GameplayEvent)
-  - `ActivationOwnedTags` = `State.Enemy.Staggered`
-  - `CancelAbilitiesWithTag` = `Ability.Enemy.Attack`
-- **MCP 提取 DSL**：
-  ```lisp
-  (event Ability|EventActivateAbility
-    (Development|PrintString "\"[Staggered 受击硬直!]\"" true true "(R=0,G=0.66,B=1,A=1)" 1.0)
-    (Utilities|FlowControl|Delay 0.4)
-    (Ability|EndAbility))
-  ```
-- **架构评估**：标准的 GAS 反应技能。触发时即打断 `Ability.Enemy.Attack`，并通过持有 `State.Enemy.Staggered` 标签通知 Evaluator 驱动状态机跃迁。
+## 3. 用户清理后各资产真实 DSL 与节点连接现状
+
+以下内容均由 Live Unreal MCP 直接从当前虚幻编辑器内存 AST 反编译导出，完全反映用户在编辑器内整理后的最新状态：
+
+### 3.1 `BPI_BotConfig` (Bot 配置解耦接口)
+```lisp
+(fn IF_GetBotMoveset () (return 0))
+(fn IF_GetBotMoveStyle () (return "Stationary"))
+(fn IF_GetBotCooldownMap () (return 0))
+(fn IF_RecordBotMoveUsed (MoveTag WorldTime))
+```
+- **变量**：无变量（纯接口）。
+- **作用**：隔离 AI 底盘与 StateTree 大脑，实现完全面向接口编程。
 
 ---
 
-### 2.4 `STE_EnemyCombatContext` (StateTree 态势评估器)
-- **文件路径**：`/Game/bps/botAI/STE_EnemyCombatContext`
-- **MCP 提取 DSL 完整实录**：
-  ```lisp
-  ;; 启动时索敌初始化 (解锁 Bot vs Bot)
-  (event EventTreeStart
-    (bind _returnvalue (AI|GetAIController 0))
-    (bind _returnvalue_1 (Pawn|GetControlledPawn _returnvalue))
-    (bind _returnvalue_2 (FPS|Combat|AI|CFLF_FindNearestHostileTarget _returnvalue_1))
-    (Utilities|IsValid _returnvalue_2
+### 3.2 `GA_Enemy_HitReact` (受击硬直 GameplayAbility)
+```lisp
+(event Ability|EventActivateAbility
+  (Development|PrintString "\"[Staggered 受击硬直!]\"" true true "(R=0.000000,G=0.660000,B=1.000000,A=1.000000)" 1.000000)
+  (Utilities|FlowControl|Delay 0.400000)
+  (Ability|EndAbility))
+
+(event Ability|EventOnEndAbility (bWasCancelled))
+```
+- **变量**：无。
+- **作用**：当弱点被击中触发受击时，赋予受击硬直标签，维持 0.4s 表现后结束技能。
+
+---
+
+### 3.3 `STE_EnemyCombatContext` (战斗上下文评估器)
+```lisp
+(event EventTreeStart
+  (bind _actor (Variables|Context|GetActor))
+  (bind _returnvalue (FPS|Combat|AI|CFLF_FindNearestHostileTarget _actor))
+  (Utilities|IsValid _returnvalue
+    (:"Is Valid"
+      (Variables|Context|SetTargetActor _returnvalue))))
+
+(event EventTick (DeltaTime)
+  (bind _actor (Variables|Context|GetActor))
+  (bind _returnvalue (Ability|GetAbilitySystemComponent _actor))
+  (bind _timeraccum (Variables|Default|GetTimerAccum))
+  (bind _returnvalue_1 (+ DeltaTime _timeraccum))
+  (bind _actor_1 (Variables|Context|GetActor))
+  (bind _targetactor (Variables|Context|GetTargetActor))
+  (|SetbIsStaggered (GameplayTags|HasMatchingGameplayTag _returnvalue "(TagName=\"State.Enemy.Staggered\")"))
+  (|SetbIsAttacking (GameplayTags|HasMatchingGameplayTag _returnvalue "(TagName=\"State.Enemy.Attacking\")"))
+  (Variables|Default|SetTimerAccum _returnvalue_1)
+  (if (> _returnvalue_1 0.1)
+    (Variables|Default|SetTimerAccum 0.0)
+    (Utilities|IsValid _targetactor
       (:"Is Valid"
-        (bind _output_get (Variables|Default|SetTargetActor _returnvalue_2)))))
-
-  ;; Tick 每帧感知与 0.1s 几何解算节流
-  (event EventTick (DeltaTime)
-    (bind _returnvalue (AI|GetAIController 0))
-    (bind _returnvalue_1 (Pawn|GetControlledPawn _returnvalue))
-    (bind _returnvalue_2 (Ability|GetAbilitySystemComponent _returnvalue_1))
-    (bind _targetactor (Variables|Default|GetTargetActor))
-    ;; 实时提取 ASC 状态 Tag
-    (|SetbIsStaggered (GameplayTags|HasMatchingGameplayTag _returnvalue_2 "(TagName=\"State.Enemy.Staggered\")"))
-    (|SetbIsAttacking (GameplayTags|HasMatchingGameplayTag _returnvalue_2 "(TagName=\"State.Enemy.Attacking\")"))
-    ;; 0.1s 定时器累计
-    (bind _output_get (Variables|Default|SetTimerAccum (+ DeltaTime (Variables|Default|GetTimerAccum))))
-    (if (> _output_get 0.1)
-      (Variables|Default|SetTimerAccum 0.0)
-      (Utilities|IsValid _targetactor
-        (:"Is Valid"
-          (Variables|Default|SetCombatInfo (FPS|Combat|AI|CFLF_GetEnemyCombatInfo (Pawn|GetControlledPawn (AI|GetAIController 0)) _targetactor)))
-        (:"Is Not Valid"
-          (Variables|Default|SetTargetActor (Game|GetPlayerPawn 0))))))
-  ```
-- **架构评估**：
-  - **动态索敌能力**：通过 `CFLF_FindNearestHostileTarget` 取代了传统硬编码 `GetPlayerPawn(0)`，完全原生支持玩家混战、怪物互殴（BvB）及中立阵营。
-  - **性能保护**：`CFLF_GetEnemyCombatInfo` 几何解算（距离、视锥投影、血量计算）被精确限制在 10Hz（0.1s），同时 ASC 的 Tag 状态保持每帧读取，兼顾超高精度与超低 CPU 损耗。
+        (Variables|Default|SetCombatInfo (FPS|Combat|AI|CFLF_GetEnemyCombatInfo _actor_1 _targetactor)))
+      (:"Is Not Valid"
+        (Variables|Context|SetTargetActor (FPS|Combat|AI|CFLF_FindNearestHostileTarget _actor_1))))))
+```
+- **变量列表**：
+  - `Context` 分类：`TargetActor` (AActor*), `AIController` (AAIController*), `Actor` (AActor*)
+  - `Default` 分类：`CombatInfo` (FEnemyCombatInfo), `bIsStaggered` (bool), `bIsAttacking` (bool), `TimerAccum` (float)
+- **状态评估**：
+  1. `EventTreeStart` 初始化时利用 `CFLF_FindNearestHostileTarget(Context.Actor)` 索敌；
+  2. 每帧提取 ASC，实时更新硬直标签 `bIsStaggered` 与攻击标签 `bIsAttacking`；
+  3. `TimerAccum` 节流控制在 0.1s (10Hz)：
+     - 若 `TargetActor` 有效，解算几何与战斗信息 `CFLF_GetEnemyCombatInfo`；
+     - 若 `TargetActor` 无效（如被击杀），触发 BvB 动态转火，重新索敌最近存活目标。
 
 ---
 
-### 2.5 `STT_EnemyAttack` (攻击招式执行任务)
-- **文件路径**：`/Game/bps/botAI/STT_EnemyAttack`
-- **MCP 提取 DSL 完整实录**：
-  ```lisp
-  (event EventEnterState (Transition)
-    (bind _returnvalue (AI|GetAIController 0))
-    (bind _returnvalue_1 (Pawn|GetControlledPawn _returnvalue))
-    (Variables|Default|SetAttackElapsed 0.0)
-    (bind _cooldownmap (|IF_GetBotCooldownMap _returnvalue_1))
-    (bind _moveset (|IF_GetBotMoveset _returnvalue_1))
-    ;; 1. 纯函数加权选招
-    (bind (_outselectedmove _returnvalue_2) (FPS|Combat|AI|CFLF_PickBestEnemyMove _moveset (Variables|Default|GetCombatInfo) (Ability|GetAbilitySystemComponent _returnvalue_1) _cooldownmap (Utilities|Time|GetGameTimeInSeconds)))
-    (if _returnvalue_2
-      ;; 2. 向 Director 抢占令牌
-      (bind _returnvalue_3 (EnemyCombatDirector|Tokens|TryRequestAttackToken (WorldSubsystems|GetEnemyCombatDirector) (Pawn|GetControlledPawn (AI|GetAIController 0))))
-      (if _returnvalue_3
-        ;; 3. 停脚并激活技能
-        (AI|Navigation|StopMovement (AI|GetAIController 0))
-        (bind _returnvalue_4 (Abilities|TryActivateAbilitiesByTag (Ability|GetAbilitySystemComponent (Pawn|GetControlledPawn (AI|GetAIController 0))) (GameplayTags|MakeGameplayTagContainerFromTag (Utilities|Struct|BreakEnemyMoveRule _outselectedmove))))
-        (if (not _returnvalue_4)
-          ;; 激活失败立即释放令牌
-          (EnemyCombatDirector|Tokens|ReleaseAttackToken (WorldSubsystems|GetEnemyCombatDirector) (Pawn|GetControlledPawn (AI|GetAIController 0)))
-          (StateTree|FinishTask false))
+### 3.4 `STT_EnemyStagger` (受击硬直任务)
+```lisp
+(event EventEnterState (Transition)
+  (AI|Navigation|StopMovement (Variables|Context|GetAIController))
+  (EnemyCombatDirector|Tokens|ReleaseAttackToken (WorldSubsystems|GetEnemyCombatDirector) (Variables|Context|GetActor)))
+
+(event EventTick (DeltaTime)
+  (if (not (|GetbIsStaggered))
+    (StateTree|FinishTask true)))
+```
+- **变量列表**：
+  - `Context` 分类：`AIController` (AAIController*), `Actor` (AActor*)
+  - `Default` 分类：`bIsStaggered` (bool, 绑定自 Evaluator), `TimerAccum` (float)
+- **状态评估**：
+  1. `EventEnterState`：立即刹车停步 `StopMovement`，并通过裁判系统释放攻击令牌 `ReleaseAttackToken`，绝不霸占攻击席位；
+  2. `EventTick`：实时检测 `!bIsStaggered`，硬直一旦结束立刻 `FinishTask(true)`，交出执行权回到状态树根节点。
+
+---
+
+### 3.5 `STT_EnemyAttack` (招式决策与攻击任务)
+```lisp
+(event EventEnterState (Transition)
+  (bind _movetag (Utilities|Struct|BreakEnemyMoveRule (FPS|Combat|AI|CFLF_PickBestEnemyMove (|IF_GetBotMoveset (Variables|Context|GetActor)) (Variables|Default|GetCombatInfo) (Ability|GetAbilitySystemComponent (Variables|Context|GetActor)) (|IF_GetBotCooldownMap (Variables|Context|GetActor)) (Utilities|Time|GetGameTimeInSeconds))))
+  (bind _actor (Variables|Context|GetActor))
+  (Variables|Default|SetAttackElapsed 0.0)
+  (bind _moveset (|IF_GetBotMoveset _actor))
+  (bind _cooldownmap (|IF_GetBotCooldownMap _actor))
+  (bind (_outselectedmove _returnvalue) (FPS|Combat|AI|CFLF_PickBestEnemyMove _moveset (Variables|Default|GetCombatInfo) (Ability|GetAbilitySystemComponent (Variables|Context|GetActor)) _cooldownmap (Utilities|Time|GetGameTimeInSeconds)))
+  (if _returnvalue
+    (bind _returnvalue_1 (EnemyCombatDirector|Tokens|TryRequestAttackToken (WorldSubsystems|GetEnemyCombatDirector) (Variables|Context|GetActor) (Utilities|Struct|BreakEnemyMoveRule _outselectedmove)))
+    (if _returnvalue_1
+      (AI|Navigation|StopMovement (Variables|Context|GetAIController))
+      (bind _returnvalue_2 (Abilities|TryActivateAbilitiesByTag (Ability|GetAbilitySystemComponent (Variables|Context|GetActor)) (GameplayTags|MakeGameplayTagContainerFromTag _movetag)))
+      (if _returnvalue_2
+        (|IF_RecordBotMoveUsed (Variables|Context|GetActor) _movetag (Utilities|Time|GetGameTimeInSeconds))
         (else
+          (EnemyCombatDirector|Tokens|ReleaseAttackToken (WorldSubsystems|GetEnemyCombatDirector) (Variables|Context|GetActor))
           (StateTree|FinishTask false)))
       (else
-        (StateTree|FinishTask false))))
+        (StateTree|FinishTask false)))
+    (else
+      (StateTree|FinishTask false))))
 
-  ;; 4. 轮询退出判定 (发现细节)
-  (event EventTick (DeltaTime)
-    (if (not true)
-      (StateTree|FinishTask true)))
+(event EventTick (DeltaTime)
+  (bind _attackelapsed (Variables|Default|GetAttackElapsed))
+  (bind _returnvalue (+ DeltaTime _attackelapsed))
+  (Variables|Default|SetAttackElapsed _returnvalue)
+  (if (>= _returnvalue 0.05)
+    (if (not (GameplayTags|HasMatchingGameplayTag (Ability|GetAbilitySystemComponent (Variables|Context|GetActor)) "(TagName=\"State.Enemy.Attacking\")"))
+      (StateTree|FinishTask true))))
 
-  ;; 5. 退出状态兜底 (发现细节)
-  (event EventExitState (Transition)
-    (EnemyCombatDirector|Tokens|ReleaseAttackToken (WorldSubsystems|GetEnemyCombatDirector)))
-  ```
-- **实测诊断分析（供 Neon 审查）**：
-  - **选招与抢牌闭环打通**：`CFLF_PickBestEnemyMove` 完美接入了 `CombatInfo`、`Moveset`、`CooldownMap`、`Time`，令牌申请与技能激活流转正确。
-  - **待微调细节 1 (Tick 监听)**：`EventTick` 中的 `(not true)` 显示当前 `NOT` 节点的输入悬空，缺少将任务变量 `bIsAttacking` 接进 `NOT` 节点的操作。若不接，任务不会在技能施放完成后自然退回状态树。
-  - **待微调细节 2 (ExitState 参数)**：`EventExitState` 里的 `ReleaseAttackToken` 节点目前没有连入 `TargetBot`（应接入 `Pawn|GetControlledPawn`），导致退出状态兜底释放令牌时缺少目标 Pawn。
-
----
-
-### 2.6 `STT_EnemyStagger` (硬直被打断任务)
-- **文件路径**：`/Game/bps/botAI/STT_EnemyStagger`
-- **MCP 提取 DSL 完整实录**：
-  ```lisp
-  (event EventEnterState (Transition)
-    (bind _returnvalue (AI|GetAIController 0))
-    (AI|Navigation|StopMovement _returnvalue)
-    (EnemyCombatDirector|Tokens|ReleaseAttackToken (WorldSubsystems|GetEnemyCombatDirector) (Pawn|GetControlledPawn _returnvalue)))
-
-  (event EventTick (DeltaTime)
-    (if (not (|GetbIsStaggered))
-      (StateTree|FinishTask true)))
-  ```
-- **架构评估**：**100% 完美范本**。进入硬直瞬间强制停脚（`StopMovement`）并立即归还攻击令牌给 Director，防止霸占近战/远程配额；Tick 中监听硬直 Tag 结束，结束后立即 `FinishTask(true)`，交由状态树重新评估。
+(event EventExitState (Transition)
+  (EnemyCombatDirector|Tokens|ReleaseAttackToken (WorldSubsystems|GetEnemyCombatDirector) (Variables|Context|GetActor)))
+```
+- **变量列表**：
+  - `Context` 分类：`AIController` (AAIController*), `Actor` (AActor*)
+  - `Default` 分类：`CombatInfo` (FEnemyCombatInfo, 绑定自 Evaluator), `AttackElapsed` (float)
+- **状态评估**：
+  1. `EventEnterState`：
+     - 调用底盘接口获取 Moveset 与 CooldownMap；
+     - `CFLF_PickBestEnemyMove` 纯函数选招；
+     - 解构获得 `TokenType` 并调用 `TryRequestAttackToken` 抢牌；
+     - 抢牌成功则 `StopMovement` 站定，并通过 GAS 激活招式 Tag；
+     - 激活成功调用 `IF_RecordBotMoveUsed` 记录冷却戳，失败则立即归还令牌并 `FinishTask(false)`；
+  2. `EventTick`：
+     - 累加 `AttackElapsed`，0.05s 延时后实时检测 `State.Enemy.Attacking` 标签；
+     - 当技能后摇结束移除标签后，立即 `FinishTask(true)`；
+  3. `EventExitState`：
+     - 退出状态时兜底调用 `ReleaseAttackToken`，杜绝任何外部强制打断引起的令牌泄漏。
 
 ---
 
-### 2.7 `STT_EnemyPositioning` (机动走位任务)
-- **文件路径**：`/Game/bps/botAI/STT_EnemyPositioning`
-- **MCP 提取 DSL 现状**：
-  ```lisp
-  (event EventTick (DeltaTime))
+### 3.6 `STT_EnemyPositioning` (机动走位任务 —— 用户清理重点关注项)
+```lisp
+(event EventTick (DeltaTime)
+  (bind _movestyle (|IF_GetBotMoveStyle (Variables|Context|GetActor)))
+  (switch Utilities|FlowControl|Switch|SwitchonEEnemyMoveStyle _movestyle
+    (:Skirmish
+      (Utilities|IsValid (Variables|Default|GetTargetActor)))))
 
-  (event EventEnterState (Transition)
-    (|SetbNeedInitMove true)
-    (AI|SetFocus (AI|GetAIController 0)))
+(event EventEnterState (Transition)
+  (Utilities|IsValid (Variables|Default|GetTargetActor)))
 
-  (event EventExitState (Transition)
-    (AI|ClearFocus (AI|GetAIController 0)))
-  ```
-- **架构评估**：
-  - 基础进出逻辑完备（`SetFocus` / `ClearFocus`）；
-  - **待补充**：`ReceiveLatentTick` 中依据 `Pawn -> IF_GetBotMoveStyle` 的 3 种机动分支（`Stationary` 仅注视 / `Chase` 追击 / `Skirmish` 环绕游走）。
-
----
-
-### 2.8 `ST_Enemy_Arena` (StateTree 核心层级与跃迁拓扑)
-- **文件路径**：`/Game/bps/botAI/ST_Enemy_Arena`
-- **Schema**：`StateTreeAIComponentSchema`
-- **MCP 提取 StateTree 活体节点配置**：
-  ```
-  Root (StateTreeState_0)
-    ├── Evaluator: STE_EnemyCombatContext_C (全局态势评估)
-    │
-    ├── ① State: StateTreeState_1 (命名: State: Staggered, 最高优先级)
-    │     ├── Task: STT_EnemyStagger_C
-    │     ├── Enter Condition: Evaluator.bIsStaggered == True (CompareBool)
-    │     └── Transitions:
-    │           └── OnStateCompleted -> Goto Root (立即重新决策)
-    │
-    ├── ② State: StateTreeState_0 (命名: state: Attack, 次优先级)
-    │     ├── Task: STT_EnemyAttack_C
-    │     ├── Enter Condition: Evaluator.bIsStaggered == False
-    │     └── Transitions:
-    │           ├── OnStateSucceeded -> Goto Root (打完一套重选)
-    │           └── OnStateFailed -> Goto state:Positioning (招式冷却/没抢到牌 -> 进走位)
-    │
-    └── ③ State: StateTreeState_2 (命名: state: Positioning, 兜底机动)
-          ├── Task: STT_EnemyPositioning_C
-          ├── Enter Condition: (None, 兜底默认进入)
-          └── Transitions:
-                ├── OnTick (即时): Condition: Evaluator.bIsStaggered == True -> Goto State: Staggered
-                └── OnTick (延迟 0.25s): Goto state:Attack (0.25s 后自动回到攻击尝试选招)
-  ```
-- **架构评估**：状态树拓扑结构非常干净，逻辑严密。`Staggered -> Attack -> Positioning` 三级优先级分明，且通过 `0.25s` 定时 Tick 跃迁实现了优雅的选招轮询，不会造成死锁卡死在走位态。
+(event EventExitState (Transition)
+  (AI|ClearFocus (Variables|Context|GetAIController)))
+```
+- **变量列表**：
+  - `Context` 分类：`AIController` (AAIController*), `Actor` (AActor*)
+  - `Default` 分类：`targetActor` (AActor*), `bLastShouldChase` (bool), `bNeedInitMove` (bool)
+- **【核心差异与待决策分析】**：
+  - **现状**：用户在虚幻编辑器中对该蓝图进行了清线简化，目前仅保留了接口获取 `MoveStyle`、`Switch on EEnemyMoveStyle` 的结构骨架，以及退出时的 `ClearFocus`。
+  - **编译状态**：0 错误，完全正常。
+  - **运行表现**：进入该状态后，由于具体的 `MoveToActor` 与 `CFLF_EvaluateCombatStance` 未连接执行线，Bot 在机动状态下将保持当前位移惯性或站立，随后由 StateTree 的 0.25s 轮询过渡回 `Attack` 状态。
+  - **需 Neon 评估决策**：请 Neon 模型评估是否将 3 种机动风格（`Stationary` -> 停脚，`Chase` -> 直奔目标，`Skirmish` -> 迟滞环绕）以最清爽、无面条引脚的方式重新接入，或是否需要新增辅助纯函数以保持蓝图极简。
 
 ---
 
-## 3. 架构审阅与重构议题 (供 Neon 模型裁决)
+### 3.7 `BP_enemyBase` (Bot 物理底盘)
+```lisp
+--- Graph: BP_enemyBase:EventGraph ---
+(event EventBeginPlay
+  (bind _self self)
+  (bind _enemymovesetdata (Variables|Default|GetEnemyMovesetData))
+  (Ability|GameplayEffect|AddLooseGameplayTags _self (GameplayTags|MakeGameplayTagContainerFromTag "(TagName=\"Team.Enemy\")"))
+  (GameplayAbilities|GiveAbility (Variables|GAS|GetAbilitySystemComponent) (|GetGA_class))
+  (Utilities|IsValid _enemymovesetdata
+    (:"Is Valid"
+      (for _array_element (Class|EnemyMovesetData|GetMoves _enemymovesetdata)
+        (FPS|Combat|CFLF_GiveAbilityToActor _self (Utilities|Struct|BreakEnemyMoveRule _array_element)))
+      (FPS|Combat|CFLF_GiveAbilityToActor _self "/Game/bps/botAI/GA_Enemy_HitReact.GA_Enemy_HitReact_C"))))
 
-### 议题一：命名规范全面重构 (Relational "Enemy" -> Entity "Bot")
-- **背景**：原设计大量采用 `EnemyMovesetData`、`EEnemyMoveStyle`、`UEnemyCombatDirector`、`STE_EnemyCombatContext` 等以 `Enemy` 为前缀的命名。
-- **问题**：在多人混战、Bot vs Bot（BvB）、中立佣兵等模式下，“Enemy” 是相对关系而非实体本质。将实体命名为 Enemy 会造成架构概念污染。
-- **建议演进路线**：
-  1. C++ 结构体与枚举：后续新模块统一以 `Bot` 为核心（如 `EBotMoveStyle`，目标称为 `TargetActor`，关系判断称为 `IsHostile`）；
-  2. 保持向后兼容：现有已编译的 `UEnemyCombatDirector` 与 `UEnemyMovesetData` 保留现有类名（避免已有蓝图断引脚），在包装与对外接口层逐步统一使用 `Bot` 规范。
-- **请 Neon 评估**：是否赞同该演进路线？
+(event GAS|Combat|EventOnCharacterDeath (KillerActor)
+  (bind _sm_core (|GetSM_core))
+  (bind _returnvalue (Transformation|GetWorldLocation _sm_core))
+  (EnemyCombatDirector|Tokens|ReleaseAttackToken (WorldSubsystems|GetEnemyCombatDirector) self)
+  (Collision|SetCollisionEnabled (Variables|Character|GetCapsuleComponent))
+  (Transformation|DetachFromComponent _sm_core "KeepWorld" "KeepWorld" "KeepWorld")
+  (Collision|SetCollisionProfileName _sm_core "PhysicsActor")
+  (Physics|SetSimulatePhysics _sm_core true)
+  (Physics|AddImpulse _sm_core (Math|Vector|vector+vector (Math|Vector|vector*vector (Math|Vector|Normalize (Math|Vector|vector-vector _returnvalue (Transformation|GetActorLocation KillerActor))) 350.0) (Math|Vector|MakeVector 0.0 0.0 500.0)) "None" true)
+  (FPS|Combat|CFLF_SpawnScatteredPickupList (Variables|Combat|Grunt|GetLootDrops) _returnvalue)
+  (Utilities|FlowControl|Delay 3.0)
+  (Actor|DestroyActor))
 
-### 议题二：`STT_EnemyAttack` 发现的 2 处引脚修正方案
-- **修正 1**：在 `STT_EnemyAttack` 的 `EventTick` 中，将任务变量 `bIsAttacking`（绑定自 Evaluator）连入 `NOT` 节点（实现 `!bIsAttacking` 结束任务）。
-- **修正 2**：在 `EventExitState` 中，将 `Get Controlled Pawn` 连入 `ReleaseAttackToken` 的 `TargetBot` 引脚。
-- **请 Neon 评估**：逻辑闭环是否完全吻合 Step 2 原始设计预期？
+(event EventIF_RecordBotMoveUsed (MoveTag WorldTime)
+  (Utilities|Map|Add (Variables|Default|GetMoveCooldownMap) MoveTag WorldTime))
 
-### 议题三：`STT_EnemyPositioning` 的 3 种走位细化
-- **`Stationary`**：仅调用 `AIController->SetFocus(TargetActor)`，维持射击朝向；
-- **`Chase`**：调用 `AIController->MoveToActor(TargetActor, AcceptanceRadius = 150.0f)`；
-- **`Skirmish`**：调用纯函数计算环绕向量，当距离过近（< 600）时后撤，距离适中（600~1200）时切向横移。
-- **请 Neon 评估**：在 GTX 1660 Super 腰射 FPS 基准下，`Skirmish` 是否建议直接采用无寻路开销的简单射线推斥，还是走完整的 `EnvQueryManager` (EQS)？
+--- Graph: BP_enemyBase:IF_GetBotMoveset ---
+(fn IF_GetBotMoveset () (return (Variables|Default|GetEnemyMovesetData)))
+
+--- Graph: BP_enemyBase:IF_GetBotMoveStyle ---
+(fn IF_GetBotMoveStyle () (return (Variables|Default|GetMoveStyle)))
+
+--- Graph: BP_enemyBase:IF_GetBotCooldownMap ---
+(fn IF_GetBotCooldownMap () (return (Variables|Default|GetMoveCooldownMap)))
+```
+- **变量列表**：
+  - `AIType` 分类：`EngageRange`, `DisengageRange`, `bIsStationary`, `GA_class`
+  - `Default` 分类：`EnemyMovesetData`, `MoveStyle`, `MoveCooldownMap`
+- **状态评估**：
+  1. `EventBeginPlay` 遍历卡带装填全部招式，额外装填 `GA_Enemy_HitReact`；
+  2. `EventOnCharacterDeath` 开头立即调用 `ReleaseAttackToken(self)` 归还令牌，其后原有物理布娃娃冲量、战利品散落、延迟销毁全部保留；
+  3. `BPI_BotConfig` 接口 4 大函数完全实现，冷却映射表通过 `EventIF_RecordBotMoveUsed` 无缝更新。
 
 ---
 
-## 4. 下一步落地实施步骤表
+### 3.8 `AIC_EnemyBase` (AI 控制器双脑分流)
+```lisp
+--- Graph: AIC_EnemyBase:EventGraph ---
+(event EventOnPossess (PossessedPawn)
+  (bind _asbp_enemy_base (Utilities|Casting|CastToBP_enemyBase PossessedPawn))
+  (Variables|Default|SetControlledBot _asbp_enemy_base))
 
-| 序号 | 任务模块 | 操作方式 | 预估耗时 | 交付成果 |
-| :---: | :--- | :--- | :---: | :--- |
-| **1** | **`STT_EnemyAttack` 引脚微调** | 使用 Unreal MCP 修复 Tick 监听与 ExitState 的 Pawn 引脚 | 1 分钟 | 攻击任务 100% 自动结束与释放 |
-| **2** | **`STT_EnemyPositioning` 走位落地** | 在 `ReceiveLatentTick` 接入 Switch on `MoveStyle` 分支 | 2 分钟 | 拥有 3 种不同走位风格的 Bot |
-| **3** | **`AIC_EnemyBase` 挂载 StateTree** | 添加 `StateTreeAIComponent`，指定为 `ST_Enemy_Arena`，加 `bUseStateTreeBrain` 开关 | 1 分钟 | 支持蓝图内一键无损切换新旧 AI 大脑 |
-| **4** | **实机 PIE 跑测** | 地图放置 Grunt，测试弱点打断、令牌争夺与多怪围攻表现 | 3 分钟 | 验证高帧率下的 AI 流畅度与战斗节奏 |
+(event EventBeginPlay
+  (if (|GetbUseStateTreeBrain)
+    (AI|Logic|StartLogic (Variables|Default|GetStateTreeAI))
+    (else
+      (Utilities|Time|SetTimerbyFunctionName 0 "F_EvaluateAI" 0.1 true false 0.1 0.3)
+      (Variables|Default|SetCurrentTarget (Game|GetPlayerPawn 0)))))
+
+--- Graph: AIC_EnemyBase:F_EvaluateAI ---
+;; 原有旧版大脑逻辑，完整保留无损
+```
+- **变量列表**：
+  - `AI Brain` 分类：`bUseStateTreeBrain` (bool, Instance Editable, 默认 `false`)
+  - `Default` 分类：`ControlledBot`, `currentTarget`, `bInCombatStance`, `Is Aim Aligned` 等
+- **组件挂载**：
+  - `StateTreeAIComponent` (Name: `StateTreeAI`) 已挂载，`stateTreeRef: "/Game/bps/botAI/ST_Enemy_Arena.ST_Enemy_Arena"`, `bStartLogicAutomatically: false`
+- **状态评估**：
+  - 双脑开关完全生效：勾选 `bUseStateTreeBrain` 启动现代 StateTree；不勾选保持原有 `F_EvaluateAI`，保证项目绝对向后兼容。
+
+---
+
+### 3.9 `ST_Enemy_Arena` (StateTree 资产结构)
+- **Evaluator**: `STE_EnemyCombatContext`
+- **Root State**:
+  - `StateTreeState_1 (Staggered)`:
+    - 绑定 Task: `STT_EnemyStagger`
+    - EnterCondition: `StateTreeCompareBoolCondition` (监听 Staggered 状态)
+    - Transition: `OnStateCompleted` -> `Root`
+  - `StateTreeState_0 (Attack)`:
+    - 绑定 Task: `STT_EnemyAttack`
+    - EnterCondition: `StateTreeCompareBoolCondition` (监听非 Staggered 状态)
+    - Transition: `OnStateSucceeded` -> `Root`
+    - Transition: `OnStateFailed` -> `State: Positioning`
+  - `StateTreeState_2 (Positioning)`:
+    - 绑定 Task: `STT_EnemyPositioning`
+    - Transition: `OnTick (Staggered == True)` -> `State: Staggered`
+    - Transition: `OnTick (延时 0.25s)` -> `State: Attack`
+
+---
+
+## 4. 提交 Neon 模型评估的核心决策点 (Neon Sync Checklist)
+
+1. **`STT_EnemyPositioning` 的引脚布线决策**：
+   - 目前处于干净骨架状态。请 Neon 给出对于 `Switch on EEnemyMoveStyle` 下 3 种模式的最优连线方案：
+     - **Stationary**：是否直接调用 `StopMovement`？
+     - **Chase**：是否直接调用 `MoveToActor(TargetActor, 150.0)`？
+     - **Skirmish**：是否仍采用 `CFLF_EvaluateCombatStance` 结合 `bLastShouldChase` 迟滞防抖，或将此逻辑封装为更精炼的纯函数？
+2. **`targetActor` 变量命名与来源统一**：
+   - 评估器中使用的是 `TargetActor` (Category `Context`)，而任务蓝图中使用的是 `targetActor` (Category `Default`)。是否统一提升为 `Context` 变量绑定，由 StateTree 运行时自动传递？
+3. **双脑切换验证方案**：
+   - 目前默认 `bUseStateTreeBrain = false`。请 Neon 确认验证步骤（单怪勾选测试 vs 关卡批量验证），以便安全推进实战手感调优。

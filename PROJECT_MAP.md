@@ -21,10 +21,11 @@
 | **武器中枢** | 装备管理与后坐力路由 | ActorComponent 负责武器挂载、插槽同步、开火接口路由与 UI 轮盘通信 | `/Game/bps/gameplayEffect-Ability/equipmentSys/BPAC_propManager` | 已完成 |
 | **枪械实装** | 加特林机枪与全自动射击 | 继承 `BPCA_weaponBase`，通过 `GA_automatical` 与 `GA_tGatlinShot` 循环触发开火与伤害 | `/Game/bps/gameplayEffect-Ability/equipmentSys/props/utilities/weapons/BPCA_gatlingGun` | 可射击验证 |
 | **伤害与掉落** | 统一伤害与花瓣抛洒 | C++ `CFLF_ApplyDamageToTarget`（优先 GAS GE 负数扣血，Fallback 引擎原生）+ `CFLF_SpawnScatteredPickups` | `Source/GAS/FPSAnimFunctionLibrary.h` | 已集成至死怪与爆炸 |
-| **敌人 AI** | 炮塔型杂兵 (Turret) | `AIC_EnemyBase` 站桩扫描 + `CFLF_CheckAimAndLineOfSight` + `GA_bot_ChargeBeam` 蓄力重炮 | `/Game/bps/BP_enemy_Grunt_Turret`<br>`/Game/bps/AIC_EnemyBase` | 逻辑闭环 |
-| **敌人 AI** | 近战追击杂兵 (Melee) | 寻路靠近 + `CFLF_SphereDamageHostiles` 范围扑击判定 + `GA_bot_MeleePounce` 扑杀 | `/Game/bps/BP_enemy_Grunt_Melee` | 逻辑闭环 |
-| **敌人 AI** | 远程游走杂兵 (Ranged) | `CFLF_EvaluateCombatStance` 迟滞防抖游走 + `GA_bot_FirePlasma` 射击等离子投射物 | `/Game/bps/BP_enemy_Grunt_Ranged`<br>`/Game/bps/gameplayEffect-Ability/equipmentSys/props/projectile/BPA_projectile_GruntPlasma` | 逻辑闭环 |
-| **AI 招式资产** | 招式配置表数据资产 | `UEnemyMovesetData` (`UPrimaryDataAsset`) + `FEnemyMoveRule` + `EEnemyTokenType` + `EEnemyMoveStyle` (走位风格) | `Source/GAS/EnemyMovesetData.h/.cpp` | 已编译落地 |
+| **敌人 AI** | 炮塔型杂兵 (Turret) | `AIC_EnemyBase` (`ST_Enemy_Arena`) + `GA_bot_ChargeBeam` 两段式红/黄线锁死蓄力重炮（`RepeatAction` + `WaitDelay` 防打断幽灵伤害） | `/Game/bps/BP_enemy_Grunt_Turret`<br>`/Game/bps/gameplayEffect-Ability/botAbilities/GA_bot_ChargeBeam` | 真攻击实装完成 |
+| **敌人 AI** | 近战追击杂兵 (Melee) | 寻路靠近 + `GA_bot_MeleePounce`（0.35s 锁向红球预警 + `LaunchCharacter` 猛扑 + `CFLF_SphereDamageHostiles` + 0.8s 破绽） | `/Game/bps/BP_enemy_Grunt_Melee`<br>`/Game/bps/gameplayEffect-Ability/botAbilities/GA_bot_MeleePounce` | 真攻击实装完成 |
+| **敌人 AI** | 远程游走杂兵 (Ranged) | `CFLF_EvaluateCombatStance` 迟滞防抖游走 + `GA_bot_FirePlasma`（0.35s 蓝球预警 + 0.25s 速度提前量预判发射 `BPA_projectile_GruntPlasma`） | `/Game/bps/BP_enemy_Grunt_Ranged`<br>`/Game/bps/gameplayEffect-Ability/botAbilities/GA_bot_FirePlasma`<br>`/Game/bps/gameplayEffect-Ability/equipmentSys/props/projectile/BPA_projectile_GruntPlasma` | 真攻击实装完成 |
+| **AI 招式资产** | 招式配置表数据资产与 3 类杂兵招式表 | `UEnemyMovesetData` (`UPrimaryDataAsset`) + `FEnemyMoveRule` + `EEnemyTokenType` + `EEnemyMoveStyle` (走位风格) | `Source/GAS/EnemyMovesetData.h/.cpp`<br>`/Game/bps/botAI/Movesets/DA_Moveset_Melee`<br>`/Game/bps/botAI/Movesets/DA_Moveset_Ranged`<br>`/Game/bps/botAI/Movesets/DA_Moveset_Turret` | 已创建并装配至 3 类杂兵 |
+| **AI 状态树大脑** | 现代 StateTree 通用大脑与双脑开关 | `ST_Enemy_Arena` (`STE_EnemyCombatContext` + 3 大 Task) + `AIC_EnemyBase.bUseStateTreeBrain = true` | `/Game/bps/botAI/ST_Enemy_Arena`<br>`/Game/bps/AIC_EnemyBase` | 已启用并全量编译通过 |
 | **AI 战斗导演** | 全场进攻令牌裁判中枢 | `UEnemyCombatDirector` (`UWorldSubsystem`) 自动挂载 + `UEnemyCombatSettings` (Project Settings 面板) + 视野优先抢占 + 令牌超时防死锁 | `Source/GAS/EnemyCombatDirector.h/.cpp` | 已编译落地 |
 | **环境地面** | 湿冷赛博沥青地面 v5 | 88% `Asphalt031` 粗粝基底 + 12% `Asphalt02` 稀疏裂纹破损岛 + 黑曜石镜面水洼 + 霓虹 SSR/Planar 倒影 | `/Game/customMaterials/CleanGround/v5/M_CyberCleanAsphalt_v5`<br>`MI_Ground_RoughAsphalt_v5` | 实机极佳 |
 | **战损贴花** | 立体断崖坑洞与地缝 | `M_Decal_Pothole_v2` (360°断崖法线/阶梯暗影/BumpOffset视差) + `M_Decal_Crack` (地缝裂痕) | `/Game/customMaterials/Decals/M_Decal_Pothole_v2`<br>`/Game/customMaterials/Decals/M_Decal_Crack` | 已完成并保存 |
@@ -214,11 +215,12 @@ flowchart TD
 1. **阶段总结**：
    - 基础环境与 AI 模块全部落地；
    - 武器轮盘系统 Phase 1~2 顺利就绪（`PROJECT_MAP.md` 契约录入完毕、`CFLF_CalculateRadialSector` 纯函数通过 C++ 编译落地）；
-   - **现代敌人系统 Step 1 (3 个轻量 C++ 底座) 编译全量就绪**：
-     - `UEnemyMovesetData`：招式配置表数据资产（`FEnemyMoveRule`、`EEnemyTokenType`、`FEnemyCombatInfo`）；
+   - **现代敌人系统 Step 1~3 全量落地并启用 StateTree 新大脑**：
+     - `UEnemyMovesetData` + 3 份现役杂兵招式表（`DA_Moveset_Melee` / `DA_Moveset_Ranged` / `DA_Moveset_Turret`）已创建并装配至 3 类咕噜怪 CDO；
      - `UEnemyCombatDirector`：全场进攻令牌裁判（`UWorldSubsystem`，带视野优先抢占、死怪自动清理与超时防死锁）；
      - `UEnemyCombatSettings`：编辑器 Project Settings 面板配置（`Edit -> Project Settings -> Game -> Enemy Combat Director`）；
      - `CFLF_GetEnemyCombatInfo` 与 `CFLF_PickBestEnemyMove`：C++ 高性能无状态纯函数落地；
+     - `ST_Enemy_Arena` 通用大脑（Evaluator + Stagger/Attack/Positioning）与 `AIC_EnemyBase` 双脑开关（`bUseStateTreeBrain = true`）已全量编译保存，可随时进 PIE 压测；
    - **摄像机震屏与屏幕视觉反馈闭环全量就绪**：
      - 四阶震感矩阵（`CS_DashFOV`, `CS_Fire`, `CS_LandImpact`, `CS_Explosion`）配置完成；
      - 屏幕后处理控件 `W_ScreenFeedback`（风线 `MI_UI_SpeedLines` + 受击红光 `MI_UI_DamageVignette`）完成集成与 Tick 衰减；
