@@ -28,9 +28,10 @@ enum class EEnemyTokenType : uint8
 UENUM(BlueprintType)
 enum class EEnemyMoveStyle : uint8
 {
-	Stationary = 0  UMETA(DisplayName = "站桩不动 / Stationary"),
-	Chase = 1       UMETA(DisplayName = "近战追击 / Chase"),
-	Skirmish = 2    UMETA(DisplayName = "游走迟滞 / Skirmish")
+	Stationary = 0     UMETA(DisplayName = "站桩不动 / Stationary"),
+	Chase = 1          UMETA(DisplayName = "近战追击 / Chase"),
+	Skirmish = 2       UMETA(DisplayName = "游走迟滞 / Skirmish"),
+	CoverSkirmish = 3  UMETA(DisplayName = "掩体游走 / CoverSkirmish")
 };
 
 /**

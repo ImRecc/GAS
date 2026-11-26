@@ -26,11 +26,13 @@
 | **敌人 AI** | 远程游走杂兵 (Ranged) | `CFLF_EvaluateCombatStance` 迟滞防抖游走 + `GA_bot_FirePlasma`（0.35s 蓝球预警 + 0.25s 速度提前量预判发射 `BPA_projectile_GruntPlasma`） | `/Game/bps/BP_enemy_Grunt_Ranged`<br>`/Game/bps/gameplayEffect-Ability/botAbilities/GA_bot_FirePlasma`<br>`/Game/bps/gameplayEffect-Ability/equipmentSys/props/projectile/BPA_projectile_GruntPlasma` | 真攻击实装完成 |
 | **AI 招式资产** | 招式配置表数据资产与 3 类杂兵招式表 | `UEnemyMovesetData` (`UPrimaryDataAsset`) + `FEnemyMoveRule` + `EEnemyTokenType` + `EEnemyMoveStyle` (走位风格) | `Source/GAS/EnemyMovesetData.h/.cpp`<br>`/Game/bps/botAI/Movesets/DA_Moveset_Melee`<br>`/Game/bps/botAI/Movesets/DA_Moveset_Ranged`<br>`/Game/bps/botAI/Movesets/DA_Moveset_Turret` | 已创建并装配至 3 类杂兵 |
 | **AI 状态树大脑** | 现代 StateTree 通用大脑与双脑开关 | `ST_Enemy_Arena` (`STE_EnemyCombatContext` + 3 大 Task) + `AIC_EnemyBase.bUseStateTreeBrain = true` | `/Game/bps/botAI/ST_Enemy_Arena`<br>`/Game/bps/AIC_EnemyBase` | 已启用并全量编译通过 |
-| **AI 战斗导演** | 全场进攻令牌裁判中枢 | `UEnemyCombatDirector` (`UWorldSubsystem`) 自动挂载 + `UEnemyCombatSettings` (Project Settings 面板) + 视野优先抢占 + 令牌超时防死锁 | `Source/GAS/EnemyCombatDirector.h/.cpp` | 已编译落地 |
+| **AI 战斗导演** | 全场进攻令牌裁判中枢 | `UEnemyCombatDirector` (`UWorldSubsystem`) 自动挂载 + `UEnemyCombatSettings` + 视野优先抢占 + 令牌超时防死锁 + `CanRequestAttackToken` / `TryConsumeEQSCooldown` (1.2s 低频 EQS 锁) | `Source/GAS/EnemyCombatDirector.h/.cpp` | 已编译落地 |
+| **AI 战术 EQS** | 扇形包抄与《光环》豺狼人掩体走位 | `UBotEQSContext_Target` / `Allies` (BvB 阵营兼容) + `CFLF_RunBotTacticalEQS` (防开火打断 + 自动回退) + `CFLF_ShouldCoverBotPeek` + `EEnemyMoveStyle::CoverSkirmish` | `Source/GAS/BotEQSContexts.h/.cpp`<br>`/Game/bps/botAI/EQS/EQS_Bot_Flank`<br>`/Game/bps/botAI/EQS/EQS_Bot_Cover`<br>`/Game/bps/botAI/STT_EnemyPositioning` | Step 4.2 实装完毕 |
+| **精英怪标杆** | 4 招变招精英先锋 (`BP_Bot_Elite_Vanguard`) | 0 行 C++/StateTree 改动；1.35x 体型 + 300HP + `DA_Moveset_Elite`（远距重砸含半血必变招二段上挑 + 中距三连电浆 + 110°~180° 绕背反制横扫）+ `Skirmish` 扇形 EQS | `/Game/bps/BP_Bot_Elite_Vanguard`<br>`/Game/bps/botAI/Movesets/DA_Moveset_Elite`<br>`/Game/bps/botAI/EliteAbilities/GA_Bot_Elite*` | Step 4.3 实装完毕 |
 | **环境地面** | 湿冷赛博沥青地面 v5 | 88% `Asphalt031` 粗粝基底 + 12% `Asphalt02` 稀疏裂纹破损岛 + 黑曜石镜面水洼 + 霓虹 SSR/Planar 倒影 | `/Game/customMaterials/CleanGround/v5/M_CyberCleanAsphalt_v5`<br>`MI_Ground_RoughAsphalt_v5` | 实机极佳 |
 | **战损贴花** | 立体断崖坑洞与地缝 | `M_Decal_Pothole_v2` (360°断崖法线/阶梯暗影/BumpOffset视差) + `M_Decal_Crack` (地缝裂痕) | `/Game/customMaterials/Decals/M_Decal_Pothole_v2`<br>`/Game/customMaterials/Decals/M_Decal_Crack` | 已完成并保存 |
 | **3D 碎石** | 实体棱角石块与簇群 | 4 种硬切面低模 `SM_CyberRubble_01~04` (18~36面, NoCollision) + 专属双色材质 + 3 级母子簇群 | `/Game/customMaterials/Meshes/Rubble/`<br>`L_cyber_showcase` (`Rubble_Dense_Cluster`, `Rubble_Sparse_Cluster`) | 实机验证通过 |
-| **武器轮盘中枢** | 动态数据驱动 8 扇区切枪轮盘 | 常驻 `bp_playerController` 托管 + 虚拟光标累加 + `CFLF_CalculateRadialSector` + 单槽子控件解耦 + 战斗边界保护 | `/Game/Core/UI/WeaponWheel/W_weaponWheel_v2`<br>`/Game/Core/UI/WeaponWheel/W_WeaponWheelSlot` | Phase 1~2 已就绪 (C++纯函数已编译落地) |
+| **武器轮盘中枢** | 动态数据驱动切枪轮盘 | 常驻 `bp_playerController` 托管 + 虚拟光标累加 + `CFLF_CalculateRadialSector` + 战斗边界保护 | `/Game/Core/UI/WeaponWheel/W_WeaponWheel_4Slot`<br>`/Game/Core/UI/WeaponWheel/W_WeaponWheelSlot` | 现役 4 槽轮盘已就绪 |
 | **摄像机震屏矩阵** | 四阶动态相机反馈系统 | `CameraShakeBase` + `WaveOscillator` (FOV变焦) / `PerlinNoise` (射击/落地/爆炸)；BPI 统一解耦派发 | `/Game/Core/Feedback/cameraShake/`<br>`CS_DashFOV` (变焦)<br>`CS_Fire` (射击)<br>`CS_LandImpact` (落地)<br>`CS_Explosion` (范围爆炸) | 现役 4 大资产已就绪 |
 | **屏幕视觉反馈** | 冲刺风线与受击红光 HUD | `W_ScreenFeedback` 屏幕控件由 `bp_playerController` 托管；动态材质实例 `MI_UI_SpeedLines` (径向高光风线) 与 `MI_UI_DamageVignette` (受击红光暗角) + Tick 平滑插值衰减 | `/Game/Core/UI/screenFeedBack/W_ScreenFeedback`<br>`MI_UI_SpeedLines`<br>`MI_UI_DamageVignette` | 实机闭环落地 |
 
@@ -175,6 +177,8 @@ flowchart TD
 | **AI 感知与姿态**<br>`FPSAnimFunctionLibrary_AI.cpp` | **`CFLF_GetEnemyCombatInfo`** | 聚合水平 2D 距离 + 高低差 + 水平前向夹角 (0°~180°) + 视线检测 + 玩家摄像机视锥判定 + ASC 血量比 | AI 每帧态势采集 / `PlayerViewHalfAngleDeg` | 现役核心 |
 | **AI 决策与招式**<br>`FPSAnimFunctionLibrary_AI.cpp` | **`CFLF_PickBestEnemyMove`** | 遍历招式表匹配距离/夹角/血量/独立冷却及 ASC 标签白名单/黑名单，加权随机输出合法招式 | AI 攻击决策 / 招式数据资产 `UEnemyMovesetData` | 现役核心 |
 | **AI 索敌与阵营**<br>`FPSAnimFunctionLibrary_AI.cpp` | **`CFLF_FindNearestHostileTarget`** | 扫描世界活体 Pawn，基于阵营互斥标签比对与可选射线检测，输出最近敌对目标（解锁 Bot vs Bot） | AI 动态索敌 / `MaxSearchRadius`, `bRequireLineOfSight` | 现役核心 |
+| **AI 战术 EQS**<br>`BotEQSContexts.cpp` | **`CFLF_RunBotTacticalEQS`** | 1.2s 硬冷却锁 + 异步 `RandomBest25Pct` 执行 + 回调防攻击/硬直打断 + 主/副 EQS 自动回退 (`Cover -> Flank`) | `STT_EnemyPositioning` / `AcceptanceRadius`, `CooldownSeconds` | 现役核心 |
+| **AI 战术 EQS**<br>`BotEQSContexts.cpp` | **`CFLF_ShouldCoverBotPeek`** | 联合 `CanRequestAttackToken` 与招式冷却状态判定《光环》豺狼人 (`CoverSkirmish`) 探头找枪线或缩回掩体 | `STT_EnemyPositioning` / `TokenType` | 现役核心 |
 | **UI 与特效**<br>`FPSAnimFunctionLibrary_UI.cpp` | **`CFLF_CalculateRadialSector`** | 虚拟光标死区截断 + $\text{Atan2}(X, -Y)$ 12点钟对齐顺时针角度 + 半扇区偏置居中整除 | `W_weaponWheel_v2` / `NumSectors` (默认8), `DeadZone` (默认35.0) | 现役核心 |
 | **UI 与特效**<br>`FPSAnimFunctionLibrary_UI.cpp` | **`CFLF_GetUnscaledDeltaTime`** | 读取 `FApp::GetDeltaTime()` 绝对真实时间步长，杜绝 0.15x 子弹时间下 UI 平滑插值变迟钝 | `W_WeaponWheelSlot` / 供 `Vector2DInterpTo` 真实时间驱动 | 现役核心 |
 | **UI 与特效**<br>`FPSAnimFunctionLibrary_UI.cpp` | **`CFLF_SpawnScatteredPickups`** | 环形等角度错位分布 + 刚体径向向外与向上冲量 + 随机三轴角冲量 | 角色死亡事件 / `Count`, `ScatterRadius`, `UpwardImpulse` | 现役核心 |
@@ -187,7 +191,7 @@ flowchart TD
 
 | 序号 | 契约载体 (接口 / Tag / 属性) | 签名 / 类型 | 职责与数据流向 |
 | :---: | :--- | :--- | :--- |
-| **1** | `ADoomBaseCharacter::OnCharacterDeath` | `(AActor* Victim)` 动态多播 | 广播角色死亡；触发 UI 强制关闭与恢复 `TimeDilation = 1.0` |
+| **1** | `ADoomBaseCharacter::OnCharacterDeath` / `OnCharacterDied` | `(AActor* KillerActor)` 蓝图事件 / `(AActor* DeadActor, AActor* KillerActor)` 动态多播 | 广播角色死亡；触发 UI 强制关闭、恢复 `TimeDilation = 1.0` 及关卡波次管理器计数监听 |
 | **2** | `BPAC_propManager::PropInventory` | `TArray<ABPA_propBase*>` | 只读公开属性；UI 初始化/呼出时拉取当前已装配武器列表 |
 | **3** | `BPAC_propManager::currentPropIndex` | `int32` | 当前手持武器下标；UI 呼出时高亮当前槽位 |
 | **4** | `BPAC_propManager::F_equipProp` | `(int32 newIndex)` 成员函数 | 切枪中枢；传入目标扇区索引，执行装配与网格体同步 |
@@ -208,6 +212,7 @@ flowchart TD
 | **19** | `BPI_BotConfig::IF_GetBotCooldownMap` | `() -> TMap<FGameplayTag, float>` | 解耦接口；只读拉取当前各招式冷却时间字典 |
 | **20** | `BPI_BotConfig::IF_RecordBotMoveUsed` | `(FGameplayTag, float) -> void` | 解耦接口；Bot 内部更新招式使用时间戳，避免值拷贝写回失效 |
 | **21** | `CFLF_FindNearestHostileTarget` | `(AActor*, float, bool) -> AActor*` | 纯函数索敌；扫描周围最近活体敌对 Pawn（解锁 Bot vs Bot） |
+| **22** | 最小自定义碰撞通道 (`DefaultEngine.ini`) | `Projectile` (Obj/Block), `EnemyWeakspot` (Trace/Ignore), `Pickup` (Obj/Ignore) | 隔离弹道、弱点射线与掉落物碰撞，避免死怪物理核心/掉落物阻挡弹道 |
 
 ---
 

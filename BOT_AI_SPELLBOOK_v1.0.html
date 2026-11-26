@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UE5 现代 Bot AI 系统专题“咒语书” v1.0 (iPad 竖屏大字版)</title>
+<style>
+:root {
+  --primary: #0f3d5e;
+  --accent:  #0891b2;
+  --purple:  #6d28d9;
+  --amber:   #b45309;
+  --emerald: #047857;
+  --rose:    #be123c;
+  --surface: #f4f7fa;
+  --border:  #d7e2ec;
+  --text:    #1e293b;
+  --muted:   #475569;
+  --bg:      #ffffff;
+}
+@page {
+  size: A4;
+  margin: 12mm 11mm 14mm;
+  background: var(--bg);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); }
+body {
+  font-family: -apple-system, 'PingFang SC', 'Inter', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+  font-size: 14pt;
+  line-height: 1.62;
+  color: var(--text);
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 20px 18px 40px;
+  -webkit-text-size-adjust: 100%;
+}
+@media print {
+  body {
+    max-width: none;
+    padding: 0;
+    font-size: 13.5pt;
+    line-height: 1.58;
+  }
+}
+.cover-page { break-after: page; page-break-after: always; }
+.hero-band {
+  border-top: 5px solid var(--purple);
+  border-bottom: 1.5px solid var(--border);
+  padding: 12px 0;
+  margin-bottom: 14px;
+}
+.hero-eyebrow {
+  font-size: 11pt;
+  font-weight: 700;
+  color: var(--purple);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+h1 {
+  font-size: 23.5pt;
+  font-weight: 800;
+  line-height: 1.28;
+  color: var(--primary);
+  margin: 0 0 8px 0;
+}
+.hero-sub {
+  font-size: 12.2pt;
+  color: var(--muted);
+  margin: 0;
+}
+h2 {
+  font-size: 17.5pt;
+  font-weight: 800;
+  color: var(--primary);
+  margin: 28px 0 12px 0;
+  padding-bottom: 6px;
+  border-bottom: 2.5px solid var(--primary);
+  break-after: avoid;
+}
+h3 {
+  font-size: 14.2pt;
+  font-weight: 700;
+  color: var(--primary);
+  margin: 18px 0 8px 0;
+  break-after: avoid;
+}
+p { margin: 0 0 11px 0; }
+ul, ol { margin: 0 0 12px 0; padding-left: 22px; }
+li { margin-bottom: 6px; }
+code {
+  font-family: 'SF Mono', 'Consolas', 'DejaVu Sans Mono', monospace;
+  font-size: 11.8pt;
+  background: #eef3f8;
+  color: #0f3d5e;
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+pre {
+  font-family: 'SF Mono', 'Consolas', 'DejaVu Sans Mono', monospace;
+  font-size: 11pt;
+  line-height: 1.5;
+  background: #f6f9fc;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 12px 0 14px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  break-inside: avoid;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0 16px 0;
+  table-layout: fixed;
+}
+th, td {
+  text-align: left;
+  padding: 8px 8px;
+  font-size: 11.8pt;
+  line-height: 1.48;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+th {
+  background: var(--primary);
+  color: #ffffff;
+  font-weight: 700;
+}
+td { border-bottom: 1px solid var(--border); }
+tbody tr:nth-child(even) { background: var(--surface); }
+tr { break-inside: avoid; }
+
+table.index-table th, table.index-table td {
+  padding: 6.5px 6px;
+  font-size: 11.2pt;
+  line-height: 1.4;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 10pt;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  color: #ffffff;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.badge-st       { background: #6d28d9; }
+.badge-ste      { background: #4338ca; }
+.badge-stt      { background: #7c3aed; }
+.badge-eqs      { background: #047857; }
+.badge-director { background: #b45309; }
+.badge-gas      { background: #be123c; }
+.badge-data     { background: #0891b2; }
+.badge-cpp      { background: #0f3d5e; }
+
+.card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 11px;
+  margin: 12px 0 16px 0;
+}
+.state-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3.5px solid var(--accent);
+  border-radius: 6px;
+  padding: 12px 14px;
+  break-inside: avoid;
+}
+.state-card.purple { border-top-color: var(--purple); }
+.state-card.emerald { border-top-color: var(--emerald); }
+.state-card.amber { border-top-color: var(--amber); }
+.state-card.rose { border-top-color: var(--rose); }
+.state-card-title {
+  font-weight: 700;
+  font-size: 13pt;
+  color: var(--primary);
+  margin-bottom: 5px;
+}
+.state-card p { font-size: 12.2pt; margin-bottom: 5px; }
+.state-card p:last-child { margin-bottom: 0; }
+
+.fn-section {
+  margin: 18px 0 22px 0;
+  padding-bottom: 16px;
+  border-bottom: 1.5px dashed var(--border);
+}
+.fn-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface);
+  border-left: 4.5px solid var(--primary);
+  border-radius: 5px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  break-inside: avoid;
+  break-after: avoid;
+}
+.fn-num {
+  font-size: 12.5pt;
+  font-weight: 800;
+  color: #fff;
+  background: var(--primary);
+  padding: 3px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.fn-code {
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 13pt;
+  font-weight: 700;
+  color: var(--primary);
+  margin-right: 6px;
+  overflow-wrap: anywhere;
+}
+.fn-file {
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 10.5pt;
+  color: var(--muted);
+  margin-left: 4px;
+}
+.fn-cn-title {
+  font-size: 12.6pt;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 2px;
+}
+.eq-block {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  padding: 11px 13px;
+  margin: 10px 0 12px 0;
+  break-inside: avoid;
+}
+.block-cap {
+  font-size: 11.5pt;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 7px;
+}
+.eq-row {
+  margin-bottom: 7px;
+  padding-bottom: 6px;
+  border-bottom: 1px dotted #e2e8f0;
+  font-size: 12.2pt;
+}
+.eq-row:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+.eq-label {
+  display: block;
+  font-size: 11.2pt;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.flow-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 11px;
+  margin: 10px 0 12px 0;
+  break-inside: avoid;
+}
+.flow-node {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 9px;
+  font-size: 11.3pt;
+}
+.flow-arrow { font-weight: 800; color: var(--accent); font-size: 13pt; }
+.spell-box {
+  background: #ecfeff;
+  border: 1px solid #a5f3fc;
+  border-left: 4.5px solid var(--accent);
+  border-radius: 6px;
+  padding: 10px 13px;
+  margin: 10px 0 2px 0;
+  break-inside: avoid;
+}
+.spell-title {
+  font-size: 11.5pt;
+  font-weight: 700;
+  color: #0e7490;
+  margin-bottom: 4px;
+}
+.spell-box p {
+  font-size: 12pt;
+  line-height: 1.55;
+  color: #164e63;
+  margin: 0;
+}
+.warn-box {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-left: 4.5px solid var(--rose);
+  border-radius: 6px;
+  padding: 10px 13px;
+  margin: 10px 0 14px 0;
+  break-inside: avoid;
+}
+.warn-title {
+  font-size: 11.8pt;
+  font-weight: 700;
+  color: var(--rose);
+  margin-bottom: 4px;
+}
+.warn-box p, .warn-box li {
+  font-size: 12pt;
+  color: #881337;
+}
+.callout {
+  background: var(--surface);
+  border-left: 4.5px solid var(--purple);
+  border-radius: 6px;
+  padding: 10px 13px;
+  margin: 10px 0 14px 0;
+  break-inside: avoid;
+}
+.callout-title {
+  font-weight: 700;
+  color: var(--purple);
+  font-size: 12.5pt;
+  margin-bottom: 4px;
+}
+</style>
+</head>
+<body>
+<main>
+
+  <!-- ==================== 封面与总索引 ==================== -->
+  <section class="cover-page">
+    <div class="hero-band">
+      <div class="hero-eyebrow">UE5.8 Momentum FPS &middot; Modern Bot AI Architecture Reference</div>
+      <h1>UE5 现代 Bot AI 系统专题“咒语书”与全景图解</h1>
+      <p class="hero-sub">v1.0 iPad 竖屏大字版（Safari / 浏览器直读，或 <code>Ctrl+P</code> 导出 A4 PDF）&mdash; 彻底拆解 <code>ST</code> / <code>STE</code> / <code>STT</code> / <code>EQS</code> / <code>Director</code> / <code>BPI</code> / <code>Moveset</code> / <code>GAS</code> 全家桶，附调参指南与可直接对 AI 念的“需求生成咒语”。</p>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title">这本专题咒语书能帮你解决什么？</div>
+      <p style="margin:0;font-size:12pt;">我们的 Bot 系统在几轮冲刺里一口气建好了 <strong>StateTree 通用大脑 + EQS 战术走位 + 令牌裁判 + 招式卡带 + 精英怪变招</strong>。这本书不讲枯燥源码，全部翻译成<strong>“人话比喻”</strong>，让你彻底明白每个缩写是什么、它们怎么协作、想改手感拧哪个旋钮，以及以后想加新怪/新招时<strong>怎么对 AI 下指令最精准</strong>。</p>
+    </div>
+
+    <h3>Bot AI 核心全家桶速查总表（共 15 大模块）</h3>
+    <table class="index-table">
+      <colgroup><col style="width:10%"><col style="width:41%"><col style="width:15%"><col style="width:34%"></colgroup>
+      <thead><tr><th>编号</th><th>资产 / 类 / 函数名</th><th>类别</th><th>一句话人话职责</th></tr></thead>
+      <tbody>
+        <tr><td><strong>#01</strong></td><td><code>ST_Enemy_Arena</code></td><td><span class="badge badge-st">ST 大脑</span></td><td>全怪共用的状态机总控台（硬直 &gt; 进攻 &gt; 走位）</td></tr>
+        <tr><td><strong>#02</strong></td><td><code>STE_EnemyCombatContext</code></td><td><span class="badge badge-ste">STE 侦察</span></td><td>后台侦察兵：0.1s 采样距离/夹角/视线/血量/硬直</td></tr>
+        <tr><td><strong>#03</strong></td><td><code>STT_EnemyStagger</code></td><td><span class="badge badge-stt">STT 任务</span></td><td>硬直室工人：立刻停脚 + 交还令牌 + 等硬直结束</td></tr>
+        <tr><td><strong>#04</strong></td><td><code>STT_EnemyAttack</code></td><td><span class="badge badge-stt">STT 任务</span></td><td>进攻室工人：视线门禁 → 选招 → 抢牌 → 放技能 → 记冷却</td></tr>
+        <tr><td><strong>#05</strong></td><td><code>STT_EnemyPositioning</code></td><td><span class="badge badge-stt">STT 任务</span></td><td>走位室工人：按 4 种风格（站桩/追击/扇形/掩体）机动</td></tr>
+        <tr><td><strong>#06</strong></td><td><code>EQS_Bot_Flank</code></td><td><span class="badge badge-eqs">EQS 沙盘</span></td><td>远程扇形拉扯：围绕目标找有视线且远离队友的点</td></tr>
+        <tr><td><strong>#07</strong></td><td><code>EQS_Bot_Cover</code></td><td><span class="badge badge-eqs">EQS 沙盘</span></td><td>豺狼人躲掩体：就近找被墙/柱子挡住视线的隐蔽点</td></tr>
+        <tr><td><strong>#08</strong></td><td><code>UBotEQSContext_Target/Allies</code></td><td><span class="badge badge-eqs">EQS 语境</span></td><td>告诉 EQS“谁是敌人、谁是队友”（全量兼容 BvB）</td></tr>
+        <tr><td><strong>#09</strong></td><td><code>UEnemyCombatDirector</code></td><td><span class="badge badge-director">Director</span></td><td>全场发牌裁判：近/远程配额 + 视野抢占 + 1.2s EQS 锁</td></tr>
+        <tr><td><strong>#10</strong></td><td><code>UEnemyMovesetData</code> (<code>DA_*</code>)</td><td><span class="badge badge-data">DA 菜单</span></td><td>招式配置表：填距离/夹角/血量/冷却/权重即可捏怪</td></tr>
+        <tr><td><strong>#11</strong></td><td><code>BPI_BotConfig</code></td><td><span class="badge badge-data">BPI 插槽</span></td><td>大脑与底盘的标准化接口（解耦，0 Hard Cast）</td></tr>
+        <tr><td><strong>#12</strong></td><td><code>CFLF_FindNearestHostileTarget</code></td><td><span class="badge badge-cpp">CFLF</span></td><td>按阵营 Tag 找最近活体敌人（彻底告别写死玩家）</td></tr>
+        <tr><td><strong>#13</strong></td><td><code>CFLF_GetEnemyCombatInfo</code></td><td><span class="badge badge-cpp">CFLF</span></td><td>单节点打包 6 项几何与血量态势快照</td></tr>
+        <tr><td><strong>#14</strong></td><td><code>CFLF_PickBestEnemyMove</code></td><td><span class="badge badge-cpp">CFLF</span></td><td>6 重门槛过滤招式表 + 加权随机抽签选招</td></tr>
+        <tr><td><strong>#15</strong></td><td><code>CFLF_RunBotTacticalEQS</code> &amp; <code>ShouldCoverBotPeek</code></td><td><span class="badge badge-cpp">CFLF</span></td><td>1.2s 低频异步 EQS 寻路 + 豺狼人探头/缩墙决策</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ==================== 第零章：零基础黑话人话词典 ==================== -->
+  <section>
+    <h2>零、彻底看懂那些英文缩写：用“特种小队”比喻秒懂全套名词</h2>
+    <p>把每一只 Bot 想象成一个<strong>拿着步枪的战术士兵</strong>，下面这 8 个专业缩写其实就对应士兵身上的 8 个器官或角色：</p>
+
+    <div class="card-grid">
+      <div class="state-card purple">
+        <div class="state-card-title">① ST = StateTree（状态树大脑，资产：<code>ST_Enemy_Arena</code>）</div>
+        <p><strong>人话比喻：</strong>士兵脑子里的<strong>“3 间工作房流程图”</strong>。房间 A 叫“挨打硬直室”，房间 B 叫“开火进攻室”，房间 C 叫“跑位机动室”。</p>
+        <p><strong>核心价值：</strong>它只管<strong>“什么时候进哪间房、什么时候换房”</strong>，不管具体怎么开枪。所以全场近战怪、远程怪、炮塔怪、精英怪，甚至以后做的 Boss，<strong>100% 共用这同一张大脑图</strong>！</p>
+      </div>
+
+      <div class="state-card purple">
+        <div class="state-card-title">② STE = StateTree Evaluator（态势评估器，蓝图：<code>STE_EnemyCombatContext</code>）</div>
+        <p><strong>人话比喻：</strong>士兵头盔上的<strong>“战术雷达 / 仪表盘”</strong>。只要大脑开着，它就在后台持续运转（每 0.1 秒扫描一次），把“敌人在哪（<code>TargetActor</code>）、离我多远/夹角多少/有没有墙（<code>CombatInfo</code>）、我有没有被打懵（<code>bIsStaggered</code>）”实时贴到公共白板上，让 3 个房间直接看。</p>
+      </div>
+
+      <div class="state-card purple">
+        <div class="state-card-title">③ STT = StateTree Task（状态树任务，蓝图：<code>STT_Enemy*</code>）</div>
+        <p><strong>人话比喻：</strong>每个房间里<strong>“真正动手干活的工人”</strong>。每个 STT 只有 3 个生命周期钩子：</p>
+        <p>&bull; <code>EventEnterState</code>（刚推门进屋）：干一次性动作（如选招、抢令牌、下达移动）；<br>
+           &bull; <code>EventTick</code>（待在屋里每帧）：盯状态（如看招放完没、看 1.2s EQS 冷却到没）；<br>
+           &bull; <code>EventExitState</code>（离开房间收尾）：擦屁股（如交还令牌、取消注视）。</p>
+      </div>
+
+      <div class="state-card emerald">
+        <div class="state-card-title">④ EQS = Environment Query System（环境查询系统，资产：<code>EQS_Bot_*</code>）</div>
+        <p><strong>人话比喻：</strong>士兵眼里的<strong>“战术沙盘推演”</strong>。普通 <code>MoveToActor</code> 只会傻乎乎直线朝玩家冲；而 EQS 会在地面撒一圈候选点（<strong>Generator 生成器</strong>），再用尺子和射线逐个淘汰和打分（<strong>Tests 测试项</strong>：“这里能看到敌人吗？有没有墙挡着？离队友远不远？”），最后挑出最高分的点走过去！</p>
+      </div>
+
+      <div class="state-card amber">
+        <div class="state-card-title">⑤ Director = <code>UEnemyCombatDirector</code>（全场进攻令牌裁判，C++ WorldSubsystem）</div>
+        <p><strong>人话比喻：</strong>拳击台边的<strong>“发牌裁判”</strong>（关卡一开自动存在，不用往地图里拖）。手里默认只有 <strong>2 张近战牌、2 张远程牌</strong>。防止 8 只怪同时齐射把玩家瞬间融化！并且它懂<strong>“视野优先抢占”</strong>：你屏幕正前方看到的怪，可以直接抢走你背后看不见的怪手里的进攻牌！</p>
+      </div>
+
+      <div class="state-card">
+        <div class="state-card-title">⑥ BPI = Blueprint Interface（蓝图接口，资产：<code>BPI_BotConfig</code>）</div>
+        <p><strong>人话比喻：</strong>大脑和身体之间的<strong>“USB 标准化接口”</strong>。大脑不关心下面接的是咕噜怪还是精英先锋，只需往接口问：“你的菜单是什么？你的走位风格是什么？”——彻底消灭蓝图之间的硬引用耦合（Hard Cast）。</p>
+      </div>
+
+      <div class="state-card">
+        <div class="state-card-title">⑦ DA = DataAsset（招式配置表，资产：<code>DA_Moveset_*</code>）</div>
+        <p><strong>人话比喻：</strong>插进怪物身上的<strong>“红白机游戏卡带 / 招式菜单”</strong>。换一张卡带，怪物就会换一套完全不同的招式距离、夹角、冷却、权重和半血二阶段规则，<strong>完全不需要改大脑或写代码</strong>。</p>
+      </div>
+
+      <div class="state-card rose">
+        <div class="state-card-title">⑧ GAS = Gameplay Ability System（招式动作包与标签，资产：<code>GA_bot_*</code> / <code>GA_Bot_Elite*</code>）</div>
+        <p><strong>人话比喻：</strong>每一招具体的<strong>“肌肉动作剧本”</strong>（画预警球 → 蓄力 → 扑击/发子弹/射激光 → 算伤害 → 后摇）。靠 <strong>GameplayTag</strong> 和大脑通信：一开招就贴上 <code>State.Enemy.Attacking</code>（告诉大脑“我正忙着呢别打扰”），一结束就撕掉标签（告诉大脑“打完了，交牌！”）。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 第一章：一帧内的完整运行全景 ==================== -->
+  <section>
+    <h2>一、一只 Bot 从出生到开火的完整生命链（全局数据流）</h2>
+    <p>把上面 8 个零件串起来，每只 Bot 在游戏里的一生就是下面这张清晰流水线：</p>
+    <pre>【1. 出生装填】(BP_enemyBase: EventBeginPlay)
+  ├─ 给自己贴阵营标签 Team.Enemy（彻底支持 Bot vs Bot 混战）
+  ├─ 遍历自己的招式表 DA_Moveset_xxx，自动把表里所有招式 GA 装进 ASC
+  └─ 自动装入受击硬直技能 GA_Enemy_HitReact
+
+【2. 大脑点火】(AIC_EnemyBase: EventOnPossess)
+  ├─ Delay(0.0) 等一帧确保出生与阵营标签全部就绪
+  └─ 检查双脑开关 bUseStateTreeBrain：
+       ├─ True  → 启动 StateTreeAI (ST_Enemy_Arena) 【现役现代大脑】
+       └─ False → 走旧版 F_EvaluateAI 定时器 【随时可勾选回滚对比】
+
+【3. 侦察兵后台循环】(STE_EnemyCombatContext)
+  ├─ TreeStart：用 CFLF_FindNearestHostileTarget 找到最近活体敌人 → 立刻算首帧 CombatInfo
+  └─ 每 0.1s (10Hz)：更新 Distance2D / AngleToTarget / bHasLineOfSight / SelfHealthPercent
+     每帧实时检查：ASC 有无 State.Enemy.Staggered？有无 State.Enemy.Attacking？
+
+【4. 状态树三房流转】(ST_Enemy_Arena)
+  ├─ ① 最高优先级：State: Staggered (bIsStaggered == true)
+  │    └─ STT_EnemyStagger：立刻刹车 + 归还令牌，等硬直标签消失回 Root
+  ├─ ② 次优先级：state:Attack (bIsStaggered == false)
+  │    └─ STT_EnemyAttack：有视线? → PickBestEnemyMove 选招 → Director 抢牌 → 停脚 → 激活 GA → 记冷却
+  │         ├─ 成功：等 0.05s 后盯住 !State.Enemy.Attacking → 打完交牌回 Root
+  │         └─ 失败（没牌/太远/冷却中/无视线）：立刻跳转去 state:Positioning
+  └─ ③ 兜底机动：state:Positioning (每 0.25s 尝试跳回 state:Attack 抽签)
+       └─ STT_EnemyPositioning：盯住目标 SetFocus + 按 MoveStyle 走位：
+            ├─ Stationary    → 原地停脚（炮塔）
+            ├─ Chase         → MoveToActor 直线追击（近战）
+            ├─ Skirmish      → 1.2s 硬锁跑 EQS_Bot_Flank 扇形包抄（远程/精英）
+            └─ CoverSkirmish → 1.2s 硬锁：冷却好且有牌机会跑 Flank 探头，否则跑 Cover 缩墙（豺狼人）
+
+【5. 死亡收尾】(BP_enemyBase: EventOnCharacterDeath)
+  └─ 第一时间调用 ReleaseAttackToken(self) 把牌还给全场 → 物理布娃娃炸飞 → 花瓣掉落 → 3s 销毁</pre>
+
+    <div class="callout">
+      <div class="callout-title">为什么这套架构能做到“改招式不改大脑、100% 兼容 BvB”？</div>
+      <p style="margin:0;font-size:12pt;"><strong>铁律 1（零硬编码玩家）</strong>：全套系统里<strong>绝不出现 <code>GetPlayerPawn(0)</code></strong>，所有索敌与 EQS 上下文均靠 <code>Team.Player</code> vs <code>Team.Enemy</code> 阵营标签互斥判定。<br>
+      <strong>铁律 2（数据驱动）</strong>：状态树只认 <code>BPI_BotConfig</code> 与 <code>UEnemyMovesetData</code>，所以从普通杂兵升级到 4 招变招精英怪，<strong>C++ 和 StateTree 真的 1 行都没动！</strong></p>
+    </div>
+  </section>
+
+  <!-- ==================== 第二章：StateTree 大脑核心件 ==================== -->
+  <section>
+    <h2>二、StateTree 大脑核心件详解（ST / STE / STT）</h2>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#01</span><div><div><span class="fn-code">ST_Enemy_Arena</span><span class="badge badge-st">ST 大脑</span><span class="fn-file">/Game/bps/botAI/</span></div><div class="fn-cn-title">通用竞技场状态树总控台</div></div></div>
+      <p><strong>核心机制：</strong>Schema 为 <code>StateTreeAIComponentSchema</code>（自动把 <code>Context.Actor</code> 和 <code>Context.AIController</code> 注入所有评估器和任务）。Root 下按从上到下顺序评估 3 个子状态，谁满足进入条件就进谁。</p>
+      <div class="eq-block">
+        <div class="block-cap">3 大状态优先级与 3 处关键属性绑定 (Property Binding)</div>
+        <div class="eq-row"><span class="eq-label">状态流转规则</span>1. <code>State: Staggered</code>（进门条件：<code>bIsStaggered == true</code>，完成回 Root）<br>2. <code>state:Attack</code>（进门条件：<code>bIsStaggered == false</code>，成功回 Root，失败转 <code>state:Positioning</code>）<br>3. <code>state:Positioning</code>（无条件兜底；OnTick 硬直抢占去 Staggered；<strong>延时 0.25s</strong> 跳回 Attack 重试抽签）</div>
+        <div class="eq-row"><span class="eq-label">3 处核心数据绑定</span>&bull; <code>STT_EnemyStagger.bIsStaggered</code> &larr; <code>Evaluator.bIsStaggered</code><br>&bull; <code>STT_EnemyAttack.CombatInfo</code> &larr; <code>Evaluator.CombatInfo</code><br>&bull; <code>STT_EnemyPositioning.targetActor</code> &larr; <code>Evaluator.TargetActor</code></div>
+      </div>
+      <div class="warn-box"><div class="warn-title">血泪防坑铁律（实机踩过的 2 个大坑）</div>
+        <ul style="margin:0;padding-left:18px;">
+          <li><strong>修改 Evaluator/Task 变量后必须手动点 ST 的 Compile</strong>：否则旧绑定可能把 <code>TargetActor</code> 覆写成 <code>Self</code>（我们已在 STE/STT 中加了 <code>Target == Actor</code> 自愈兜底）。</li>
+          <li><strong>不要在 <code>Context</code> 分类乱放自定义变量</strong>：<code>Context</code> 分类专供引擎自动注入自身 <code>Actor</code> / <code>AIController</code>，放别的东西会被强行塞进自身指针！</li>
+        </ul>
+      </div>
+      <div class="spell-box"><div class="spell-title">需求生成咒语（扩展状态树时怎么跟 AI 说）</div><p>我想给现有通用状态树 <code>ST_Enemy_Arena</code> 新增一个状态【例如：残血狂暴逃跑 / 巡逻待机】，请保持现有 <code>Staggered &gt; Attack &gt; Positioning</code> 优先级不变，告诉我应该在 <code>STE_EnemyCombatContext</code> 增加什么输出变量、新建什么 <code>STT_</code> 任务蓝图，以及在 <code>ST_Enemy_Arena</code> 里怎么配置进入条件、绑定和过渡转移。</p></div>
+    </article>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#02</span><div><div><span class="fn-code">STE_EnemyCombatContext</span><span class="badge badge-ste">STE 侦察</span><span class="fn-file">/Game/bps/botAI/</span></div><div class="fn-cn-title">战斗态势评估器（10Hz 节流雷达）</div></div></div>
+      <p><strong>它在干嘛：</strong>每帧轻量化检测 2 个 GAS 标签（<code>State.Enemy.Staggered</code>、<code>State.Enemy.Attacking</code>），每 <code>0.1s</code> 节流算一次几何态势 <code>CFLF_GetEnemyCombatInfo</code>；一旦目标死亡或失效，下个 0.1s 周期自动调 <code>CFLF_FindNearestHostileTarget</code> 动态转火。</p>
+      <ul><li><strong>调参位置：</strong>节流间隔目前是 <code>0.1s</code>（10Hz），同屏超过 30 只怪时可放宽到 <code>0.15~0.2s</code> 进一步省 CPU。</li></ul>
+    </article>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#03</span><div><div><span class="fn-code">STT_EnemyStagger</span><span class="badge badge-stt">STT 任务</span><span class="fn-file">/Game/bps/botAI/</span></div><div class="fn-cn-title">受击硬直中断任务</div></div></div>
+      <p><strong>它在干嘛：</strong>当玩家打中弱点触发 <code>GA_Enemy_HitReact</code> 时，<code>HitReact</code> 会取消所有 <code>Ability.Enemy.Attack</code> 技能并贴上 <code>State.Enemy.Staggered</code> 标签。本任务立刻触发：进门执行 <code>StopMovement</code> 刹车 + <code>ReleaseAttackToken</code> 交牌（绝不白占全场的攻击名额），每帧等 <code>!bIsStaggered</code> 立刻 <code>FinishTask(true)</code> 恢复战斗。</p>
+    </article>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#04</span><div><div><span class="fn-code">STT_EnemyAttack</span><span class="badge badge-stt">STT 任务</span><span class="fn-file">/Game/bps/botAI/</span></div><div class="fn-cn-title">招式抽签、抢牌与生命周期监管任务</div></div></div>
+      <div class="flow-strip">
+        <div class="flow-node">检查有视线 bHasLOS</div><div class="flow-arrow">&rarr;</div>
+        <div class="flow-node">PickBestEnemyMove 选招</div><div class="flow-arrow">&rarr;</div>
+        <div class="flow-node">Director 抢牌</div><div class="flow-arrow">&rarr;</div>
+        <div class="flow-node">StopMovement + 激活 GA</div><div class="flow-arrow">&rarr;</div>
+        <div class="flow-node">RecordBotMoveUsed 记冷却</div><div class="flow-arrow">&rarr;</div>
+        <div class="flow-node">0.05s 后盯 !Attacking 结束并交牌</div>
+      </div>
+      <ul><li><strong>为什么 Tick 要等 <code>0.05s</code> 才检测 <code>!State.Enemy.Attacking</code>？</strong>防止技能刚激活的同一帧标签还没来得及同步完成，导致误判“技能已结束”而提前交牌。</li><li><strong>为什么 <code>EventExitState</code> 也要再调一次 <code>ReleaseAttackToken</code>？</strong>兜底防死锁！无论因为什么原因被强行踢出攻击状态，令牌 100% 归还裁判池。</li></ul>
+    </article>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#05</span><div><div><span class="fn-code">STT_EnemyPositioning</span><span class="badge badge-stt">STT 任务</span><span class="fn-file">/Game/bps/botAI/</span></div><div class="fn-cn-title">四风格战术走位任务</div></div></div>
+      <p><strong>它在干嘛：</strong>进门先 <code>SetFocus(Target)</code> 锁定转头瞄准，再通过接口读出怪物的 <code>MoveStyle</code> 分流到 4 种完全不同的移动大脑：</p>
+      <table>
+        <colgroup><col style="width:24%"><col style="width:36%"><col style="width:40%"></colgroup>
+        <thead><tr><th>MoveStyle 枚举</th><th>行为表现</th><th>适用怪物</th></tr></thead>
+        <tbody>
+          <tr><td><code>Stationary</code></td><td>原地 <code>StopMovement</code> + 转头瞄准</td><td>重炮炮塔 (<code>Turret</code>)</td></tr>
+          <tr><td><code>Chase</code></td><td><code>MoveToActor(150cm)</code> 直线猛追</td><td>近战狂战士 (<code>Melee</code>)</td></tr>
+          <tr><td><code>Skirmish</code></td><td>1.2s 硬冷却跑 <code>EQS_Bot_Flank</code> 扇形包抄</td><td>远程游走怪 (<code>Ranged</code>) / 精英先锋</td></tr>
+          <tr><td><code>CoverSkirmish</code></td><td>1.2s 硬冷却：<code>ShouldCoverBotPeek</code> 为真跑 <code>Flank</code> 探头，为假跑 <code>Cover</code> 缩墙（空旷地图自动回退 <code>Flank</code>）</td><td>《光环》豺狼人 / 脆皮狙击手</td></tr>
+        </tbody>
+      </table>
+    </article>
+  </section>
+
+  <!-- ==================== 第三章：EQS 战术沙盘专题 ==================== -->
+  <section>
+    <h2>三、EQS 战术走位沙盘专题（扇形包抄 &amp; 豺狼人找掩体）</h2>
+
+    <div class="warn-box">
+      <div class="warn-title">全 UE5 最容易踩反的 EQS 铁律（已在 UE5.8 引擎源码实锤！）</div>
+      <p style="margin:0;">UE5 的 <code>EnvQueryTest_Trace</code> 会<strong>自动把目标 Actor（Context）加入忽略列表</strong>！因此射线撞到墙/柱子才返回 <code>True</code>，畅通无阻看到目标返回 <code>False</code>：<br>
+      &bull; 想找<strong>有清晰视线</strong>的开火点（<code>EQS_Bot_Flank</code>） &rarr; <strong><code>Bool Match</code> 必须取消勾选（<code>False</code>）！</strong><br>
+      &bull; 想找<strong>被墙挡住视线</strong>的掩体点（<code>EQS_Bot_Cover</code>） &rarr; <strong><code>Bool Match</code> 必须勾选（<code>True</code>）！</strong></p>
+    </div>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#06</span><div><div><span class="fn-code">EQS_Bot_Flank</span><span class="badge badge-eqs">EQS 沙盘</span><span class="fn-file">/Game/bps/botAI/EQS/</span></div><div class="fn-cn-title">远程扇形包抄查询（16 点极轻量 Donut）</div></div></div>
+      <div class="eq-block">
+        <div class="block-cap">生成器 + 3 条打分规则（单次耗时实测仅 ~1ms）</div>
+        <div class="eq-row"><span class="eq-label">Generator：Points: Donut（围绕 Target 撒点）</span><code>InnerRadius = 550</code>，<code>OuterRadius = 950</code>，<code>2 环 × 8 点 = 16 个点</code>，投影到 NavMesh。</div>
+        <div class="eq-row"><span class="eq-label">Test 1：Trace（Filter Only，筛掉被墙挡住的点）</span>向 <code>Bot EQS Context - Target</code> 发 Visibility 射线（高度偏移 +60），<strong><code>Bool Match = False</code></strong>。</div>
+        <div class="eq-row"><span class="eq-label">Test 2 &amp; 3：Distance（Score Only，既散开又省路）</span>离 <code>Bot EQS Context - Allies</code> 越远分越高（<code>+1.0</code>，防队友扎堆）；离自己 <code>Querier</code> 越近分略高（<code>-0.4</code>，优先顺手侧翼点）。</div>
+      </div>
+      <ul><li><strong>想调宽/调近交战距离？</strong>直接双击打开 <code>EQS_Bot_Flank</code>，改 <code>InnerRadius / OuterRadius</code> 即可，零代码改动！</li></ul>
+    </article>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#07</span><div><div><span class="fn-code">EQS_Bot_Cover</span><span class="badge badge-eqs">EQS 沙盘</span><span class="fn-file">/Game/bps/botAI/EQS/</span></div><div class="fn-cn-title">《光环》豺狼人找掩体查询（Grid 网格）</div></div></div>
+      <div class="eq-block">
+        <div class="block-cap">生成器 + 4 条筛选与打分规则</div>
+        <div class="eq-row"><span class="eq-label">Generator：Points: Grid（围绕自己 Querier 撒点）</span><code>Grid Half Size = 700</code>，<code>Space Between = 175</code>，投影到 NavMesh。</div>
+        <div class="eq-row"><span class="eq-label">Test 1 &amp; 2：Trace + Distance（Filter Only）</span>向 Target 发射线（+60），<strong><code>Bool Match = True</code>（必须有墙遮挡！）</strong>；且到 Target 距离限定在 <code>350 ~ 1400 cm</code>（不贴脸也不逃跑）。</div>
+        <div class="eq-row"><span class="eq-label">Test 3 &amp; 4：Distance（Score Only）</span>离自己越近分越高（<code>-1.0</code>，就近秒缩掩体）；离队友越远分越高（<code>+0.5</code>，分头躲不同柱子）。</div>
+      </div>
+    </article>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#08</span><div><div><span class="fn-code">UBotEQSContext_Target / Allies</span><span class="badge badge-eqs">EQS 语境</span><span class="fn-file">BotEQSContexts.h/.cpp</span></div><div class="fn-cn-title">全阵营兼容的自定义 EQS 上下文</div></div></div>
+      <p><strong>为什么必须写这两个 C++ 类？</strong>UE 自带的 EQS 上下文只有 <code>Querier（自己）</code>，不知道“敌人是谁”和“队友是谁”。这两个类通过 <code>AIController::GetFocusActor()</code> + <code>CFLF_FindNearestHostileTarget</code> 和阵营标签扫描，让 EQS 在 <strong>玩家 vs Bot</strong> 和 <strong>Bot vs Bot</strong> 混战里都完全通用。</p>
+    </article>
+  </section>
+
+  <!-- ==================== 第四章：Bot 专属 C++ 算法与底座 ==================== -->
+  <section>
+    <h2>四、Bot 专属 C++ 算法与裁判底座速查</h2>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#09</span><div><div><span class="fn-code">UEnemyCombatDirector</span><span class="badge badge-director">Director</span><span class="fn-file">EnemyCombatDirector.h/.cpp</span></div><div class="fn-cn-title">全场进攻令牌裁判 + 低频 EQS 冷却锁</div></div></div>
+      <p><strong>怎么调参（无需改代码！）：</strong>打开虚幻编辑器菜单 <strong><code>Edit &rarr; Project Settings &rarr; Game &rarr; Enemy Combat Director</code></strong>，直接滑动调整：</p>
+      <ul>
+        <li><code>MaxMeleeTokens</code>（默认 2）/ <code>MaxRangedTokens</code>（默认 2）：同时允许几只近战/远程怪出手；</li>
+        <li><code>TokenTimeoutDuration</code>（默认 6.0s）：防死锁强制回收超时；</li>
+        <li><code>PlayerViewHalfAngleDeg</code>（默认 45°，即 90° 前向视锥）与 <code>PreemptionStrategy</code>：视野优先抢占策略。</li>
+      </ul>
+      <p><strong>核心接口：</strong><code>TryRequestAttackToken</code>（抢牌）、<code>ReleaseAttackToken</code>（还牌）、<code>CanRequestAttackToken</code>（只读探测池有无空位，解开豺狼人躲墙死锁）、<code>TryConsumeEQSCooldown</code>（跨状态 1.2s 硬冷却锁）。</p>
+      <div class="spell-box"><div class="spell-title">需求生成咒语</div><p>我想调整全场敌人并发进攻节奏，通过 <code>UEnemyCombatDirector</code> 将【近战/远程】令牌上限改为【X】，或者新增一种令牌类型【如 Heavy / Boss】并在 <code>UEnemyCombatSettings</code> 暴露配置项，请保持视野优先抢占与 6 秒防死锁机制不变。</p></div>
+    </article>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#10</span><div><div><span class="fn-code">UEnemyMovesetData</span> (<code>DA_Moveset_*</code>)<span class="badge badge-data">DA 菜单</span><span class="fn-file">EnemyMovesetData.h</span></div><div class="fn-cn-title">数据驱动招式配置表</div></div></div>
+      <p>每行 <code>FEnemyMoveRule</code> 就是一招的“入场券门槛”，全部满足才会进入加权抽签池：</p>
+      <table>
+        <colgroup><col style="width:30%"><col style="width:70%"></colgroup>
+        <thead><tr><th>字段名</th><th>策划调参人话说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>MoveTag</code> / <code>MoveAbilityClass</code></td><td>招式的 GAS 激活标签（建议挂 <code>Ability.Enemy.Attack.*</code>）与对应技能蓝图类（出生自动装填）。</td></tr>
+          <tr><td><code>TokenType</code></td><td><code>Melee</code> / <code>Ranged</code> / <code>None</code>（绕背反制技设为 <code>None</code> 可无视令牌池立刻反击！）。</td></tr>
+          <tr><td><code>Min/MaxDistance</code></td><td>纯 2D 水平射程（cm）。填 <code>99999 ~ 99999</code> 可实现<strong>“仅借 BeginPlay 装填，永不被大脑主动抽中”</strong>的纯连招派生技！</td></tr>
+          <tr><td><code>Min/MaxFrontAngle</code></td><td>相对怪物正前方的水平夹角（0°正前 ~ 180°正后）。填 <code>110° ~ 180°</code> 就是专治绕背的反制扫击！</td></tr>
+          <tr><td><code>Min/MaxHealthPercent</code></td><td>自身血量阶段门禁（如填 <code>0.0 ~ 0.5</code> 就是半血二阶段专属狂暴技）。</td></tr>
+          <tr><td><code>CooldownSeconds</code> / <code>Weight</code></td><td>单招独立冷却秒数；加权随机权重（最小 <code>0.001</code>，越大越爱出这招）。</td></tr>
+          <tr><td><code>RequiredTags</code> / <code>BlockedTags</code></td><td>白名单/黑名单标签（支持二阶段狂暴开启或断臂封招）。</td></tr>
+        </tbody>
+      </table>
+    </article>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#11~13</span><div><div><span class="fn-code">CFLF_FindNearestHostileTarget / GetEnemyCombatInfo / PickBestEnemyMove</span><span class="badge badge-cpp">CFLF</span><span class="fn-file">AI.cpp</span></div><div class="fn-cn-title">索敌、态势快照与招式抽签三连纯函数</div></div></div>
+      <ul>
+        <li><strong><code>CFLF_FindNearestHostileTarget</code></strong>：遍历活体 Pawn，三重过滤死体（<code>bIsDead</code> / <code>State.Dead</code> / <code>Health &lt;= 0</code>）+ 阵营互斥（<code>Team.Player</code> vs <code>Team.Enemy</code>），返回最近敌人。</li>
+        <li><strong><code>CFLF_GetEnemyCombatInfo</code></strong>：单节点算出 <code>Distance2D</code>、<code>HeightDiff</code>、<code>AngleToTarget</code>（0°~180°）、<code>bHasLineOfSight</code>、<code>bInPlayerView</code>、<code>SelfHealthPercent</code>（6 合 1 结构体）。</li>
+        <li><strong><code>CFLF_PickBestEnemyMove</code></strong>：遍历 <code>DA_Moveset</code> 的全部规则，校验距离/夹角/血量/独立冷却/白黑名单，按 <code>Weight</code> 加权随机抽出一招。</li>
+      </ul>
+    </article>
+
+    <article class="fn-section">
+      <div class="fn-header"><span class="fn-num">#14~15</span><div><div><span class="fn-code">CFLF_RunBotTacticalEQS</span> &amp; <span class="fn-code">CFLF_ShouldCoverBotPeek</span><span class="badge badge-cpp">CFLF</span><span class="fn-file">BotEQSContexts.cpp</span></div><div class="fn-cn-title">低频异步战术 EQS 执行器与豺狼人探头判定</div></div></div>
+      <ul>
+        <li><strong><code>CFLF_RunBotTacticalEQS</code></strong>：先过 Director 的 <code>1.2s</code> 冷却锁 → 异步执行 <code>PrimaryQuery</code>（<code>RandomBest25Pct</code> 防所有怪走同一个点）→ 回调前自动检查 <code>!Dead &amp;&amp; !Attacking &amp;&amp; !Staggered</code>（防开火中途走神）→ 若主查询无结果自动链式执行 <code>FallbackQuery</code>（如空旷场地 <code>Cover &rarr; Flank</code>）。开启 <code>bDrawDebugPoint = true</code> 会在选中的战术点画 1.1s 翡翠绿调试球。</li>
+        <li><strong><code>CFLF_ShouldCoverBotPeek</code></strong>：当 <code>CanRequestAttackToken == true</code> <strong>且</strong> 招式表至少有 1 招冷却转好时返回 <code>True</code>（探头跑 <code>Flank</code>）；刚打完进入冷却或池满时返回 <code>False</code>（立刻缩墙跑 <code>Cover</code>）。</li>
+      </ul>
+    </article>
+  </section>
+
+  <!-- ==================== 第五章：GAS 招式铁律与现役怪物图鉴 ==================== -->
+  <section>
+    <h2>五、Bot 攻击技能 (GA) 4 条铁律与现役怪物图鉴</h2>
+
+    <div class="eq-block">
+      <div class="block-cap">写任何 Bot 攻击 GA 必须严格遵守的 4 条铁律</div>
+      <div class="eq-row"><strong>1. Instancing Policy = <code>Instanced Per Actor</code></strong>：技能实例挂在怪身上复用。</div>
+      <div class="eq-row"><strong>2. 标签树形挂载</strong>：<code>AbilityTags</code> 必须是 <code>Ability.Enemy.Attack</code> 或其子标签（如 <code>Ability.Enemy.Attack.EliteDashSlam</code>），保证 <code>GA_Enemy_HitReact</code> 能一刀全打断；<code>ActivationOwnedTags</code> 必须带 <code>State.Enemy.Attacking</code>（大脑靠它判断招放完没）。</div>
+      <div class="eq-row"><strong>3. 绝不用普通 <code>Delay</code>，必须用 GAS 原生 <code>WaitDelay</code> / <code>RepeatAction</code></strong>：普通 <code>Delay</code> 在 <code>InstancedPerActor</code> 被取消打断时不会自动停止，会产生“怪都硬直了还飞出子弹/激光”的幽灵伤害！</div>
+      <div class="eq-row"><strong>4. 窗口期变招秘诀</strong>：派生招式（如 <code>GA_Bot_EliteFollowupUppercut</code>）把 <code>ActivationBlockedTags</code> 留空，前招在 <code>EndAbility</code> <strong>之前</strong>先 <code>TryActivateAbilitiesByTag</code> 激活派生招，即可让 <code>State.Enemy.Attacking</code> 一帧不断裂，实现无缝连招！</div>
+    </div>
+
+    <h3>现役 4 大 Bot 标杆对照表</h3>
+    <table>
+      <colgroup><col style="width:27%"><col style="width:17%"><col style="width:14%"><col style="width:42%"></colgroup>
+      <thead><tr><th>怪物蓝图</th><th>招式表 / 走位</th><th>血量 / 体型</th><th>实战行为与调试色</th></tr></thead>
+      <tbody>
+        <tr><td><code>BP_enemy_Grunt_Melee</code></td><td><code>DA_Moveset_Melee</code><br><code>Chase</code></td><td>100 HP / 1.0x</td><td>直线追近 → 红球 0.35s 锁向 → 1100 猛扑 + 橙球 R160 (20伤) → 0.8s 破绽</td></tr>
+        <tr><td><code>BP_enemy_Grunt_Ranged</code></td><td><code>DA_Moveset_Ranged</code><br><code>Skirmish</code> (可切 <code>CoverSkirmish</code>)</td><td>100 HP / 1.0x</td><td>1.2s EQS 扇形拉扯/躲掩体 → 青球 0.35s → 0.25s 提前量预判电浆弹</td></tr>
+        <tr><td><code>BP_enemy_Grunt_Turret</code></td><td><code>DA_Moveset_Turret</code><br><code>Stationary</code></td><td>100 HP / 1.0x</td><td>站桩转头 → 红线追踪 0.85s → 黄线锁死 0.15s（Dash 窗）→ 紫红重炮 (35伤)</td></tr>
+        <tr><td><code>BP_Bot_Elite_Vanguard</code></td><td><code>DA_Moveset_Elite</code><br><code>Skirmish</code></td><td><strong>300 HP / 1.35x</strong></td><td>远距红球重砸 (28伤，落地 0.15s 窗口半血必出/满血 50% 接亮黄二段上挑 30伤) + 中距三连电浆 + 110°~180° 紫球绕背震飞 (25伤)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ==================== 第六章：万能实战咒语库 ==================== -->
+  <section>
+    <h2>六、直接复制发给 AI 的“Bot 专题万能咒语库”</h2>
+    <p>以后不管在新会话还是继续迭代，直接复制下面对应模板、填完【】里的内容发给 AI，就能 0 歧义精准施工：</p>
+
+    <div class="spell-box">
+      <div class="spell-title">咒语 A：零代码捏一只全新杂兵 / 精英怪 / Boss</div>
+      <p>请基于现有 <code>BP_enemyBase</code> 和通用大脑 <code>ST_Enemy_Arena</code>（<strong>不改 C++ 和 StateTree</strong>），帮我新建一只名为 <code>BP_Bot_【怪物名】</code> 的敌人：体型缩放【如 1.5x】，血量用单个 <code>GE_initStatus</code> Spec 设为【如 500】，走位风格设为【Stationary / Chase / Skirmish / CoverSkirmish】。同时在 <code>/Game/bps/botAI/Movesets/</code> 新建 <code>DA_Moveset_【怪物名】</code>，并按统一规范（<code>InstancedPerActor</code> + <code>Ability.Enemy.Attack.*</code> + <code>State.Enemy.Attacking</code> + <code>WaitDelay/RepeatAction</code> + <code>CFLF_FindNearestHostileTarget</code> + 屏幕 <code>PrintString</code> 播报）实现以下招式：【列出招式名称、距离/夹角/血量条件、前摇与伤害】。</p>
+    </div>
+
+    <div class="spell-box" style="margin-top:12px;">
+      <div class="spell-title">咒语 B：给现有怪物加“二阶段狂暴 / 绕背反制 / 窗口变招”</div>
+      <p>请给现有怪物 <code>BP_Bot_【怪物名】</code> 的招式表 <code>DA_Moveset_【名】</code> 新增一招 <code>GA_Bot_【招式名】</code>，先通过 <code>GameplayTagsToolset.AddTag</code> 注册子标签 <code>Ability.Enemy.Attack.【子标签】</code>。<br>
+      &bull; 若为<strong>半血二阶段招</strong>：把招式表该行的 <code>MaxHealthPercent</code> 设为 <code>0.5</code>；<br>
+      &bull; 若为<strong>绕背反制招</strong>：把 <code>MinFrontAngle ~ MaxFrontAngle</code> 设为 <code>110 ~ 180</code>、<code>TokenType = None</code>；<br>
+      &bull; 若为<strong>窗口变招派生技</strong>：该行距离填 <code>99999 ~ 99999</code>（仅装填不抽签），<code>ActivationBlockedTags</code> 留空，由前招在 <code>EndAbility</code> 前调用 <code>TryActivateAbilitiesByTag</code> 无缝接管。</p>
+    </div>
+
+    <div class="spell-box" style="margin-top:12px;">
+      <div class="spell-title">咒语 C：调整战术走位或新增一种 EQS 风格</div>
+      <p>我想调整【Skirmish / CoverSkirmish】的走位手感（或新增一种 <code>EEnemyMoveStyle::【新风格名】</code>）：目标距离保持在【最小~最大 cm】，通过 <code>CFLF_RunBotTacticalEQS</code> 保持【1.2s】低频异步冷却锁与防开火中途走神校验。若需新建 EQS 资产，请记住 UE5.8 <code>EnvQueryTest_Trace</code> 的 <code>Bool Match = False</code> 是清晰视线、<code>True</code> 是掩体遮挡，并给我 2 分钟编辑器点选清单。</p>
+    </div>
+
+    <div class="spell-box" style="margin-top:12px;">
+      <div class="spell-title">咒语 D：Bot 不动 / 不打 / 抽搐时的标准排查咒语</div>
+      <p>我进 PIE 发现【某只 Bot】出现【不动 / 不开火 / 抽搐】现象，请不要猜测，直接通过 Live Unreal MCP 启动短时 PIE 探针依次排查：1) 玩家与 Bot 的 <code>Health / MaxHealth</code> 及 <code>Team.* / State.Dead</code> 标签；2) <code>LogStateTree Verbose</code> 与 <code>LogEQS Verbose</code> 日志；3) <code>STE_EnemyCombatContext</code> 的 <code>TargetActor</code> 是否出现自指或 <code>Dist=0, Ang=90°</code>；4) <code>STT_EnemyAttack</code> 选招与令牌拦截日志。查出实锤后再给报告。</p>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>

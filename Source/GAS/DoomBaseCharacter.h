@@ -10,6 +10,8 @@ class UAbilitySystemComponent;
 class UDoomAttributeSet;
 class UGameplayAbility;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnCharacterDiedSignature, AActor*, DeadActor, AActor*, KillerActor);
+
 /**
  * 具有 GAS 架构与 Doom 风格机动核心的角色基类
  */
@@ -58,6 +60,10 @@ public:
 	 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "GAS|Combat", meta = (DisplayName = "OnCharacterDeath"))
 	void OnCharacterDeath(AActor* KillerActor);
+
+	/** 供关卡波次管理器/外部系统绑定的角色死亡多播委托 */
+	UPROPERTY(BlueprintAssignable, Category = "GAS|Combat")
+	FOnCharacterDiedSignature OnCharacterDied;
 
 protected:
 	virtual void PossessedBy(AController* NewController) override;

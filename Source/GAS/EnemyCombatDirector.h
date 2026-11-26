@@ -119,6 +119,22 @@ public:
 	bool HasAttackToken(AActor* EnemyActor) const;
 
 	/**
+	 * 只读探测该怪此刻是否有机会拿到指定类型的攻击令牌（不实际占用令牌）
+	 * @Purpose 供《光环》豺狼人风格 (CoverSkirmish) 判定是探头找枪线还是缩回掩体，避免“未持牌躲掩体→无视线抢不到牌”的死锁
+	 */
+	UFUNCTION(BlueprintPure, Category = "Enemy Combat Director|Tokens")
+	bool CanRequestAttackToken(AActor* EnemyActor, EEnemyTokenType TokenType) const;
+
+	/**
+	 * 检查并消耗该 Bot 的低频 EQS 冷却锁（跨 StateTree 状态重入持久化，防高频查询卡帧）
+	 * @param BotActor 发起 EQS 的 Bot
+	 * @param CooldownSeconds 冷却时长（默认 1.2 秒）
+	 * @return 若已过冷却则记录本次时间戳并返回 true；仍在冷却中返回 false
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Enemy Combat Director|EQS")
+	bool TryConsumeEQSCooldown(AActor* BotActor, float CooldownSeconds = 1.2f);
+
+	/**
 	 * 获取当前令牌分配调试字符串（如 "Melee: 1/2 | Ranged: 2/2"）
 	 */
 	UFUNCTION(BlueprintPure, Category = "Enemy Combat Director|Debug")
@@ -183,6 +199,9 @@ protected:
 private:
 	UPROPERTY()
 	TArray<FEnemyTokenRecord> ActiveTokens;
+
+	/** 记录每只 Bot 上一次触发低频 EQS 战术查询的世界时间戳（使用弱指针自动防死怪泄漏） */
+	TMap<TWeakObjectPtr<AActor>, float> EQSLastQueryTimeMap;
 
 	// 运行时配置缓存（初始化时从 UEnemyCombatSettings 读取）
 	int32 MaxMeleeTokens = 2;

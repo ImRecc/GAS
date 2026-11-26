@@ -67,29 +67,6 @@ bool UFPSAnimFunctionLibrary::CFLF_ApplyDamageToTarget(
 					UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(TargetActor, HitEventTag, Payload);
 				}
 
-				if (GEngine)
-				{
-					float CurrentHp = 0.0f;
-					float MaxHp = 0.0f;
-					if (const UDoomAttributeSet* DoomAttr = Cast<UDoomAttributeSet>(TargetASC->GetAttributeSet(UDoomAttributeSet::StaticClass())))
-					{
-						CurrentHp = DoomAttr->GetHealth();
-						MaxHp = DoomAttr->GetMaxHealth();
-					}
-
-					if (CurrentHp <= 0.0f)
-					{
-						FString KillMsg = FString::Printf(TEXT("☠️ [KILL] %s 被彻底消灭！生命归零 (0.0 / %.1f)"),
-							*TargetActor->GetName(), MaxHp);
-						GEngine->AddOnScreenDebugMessage(-1, 3.5f, FColor::Red, KillMsg);
-					}
-					else
-					{
-						FString HitMsg = FString::Printf(TEXT("🎯 [HIT] %s 受到 %.1f 伤害 | 剩余生命: %.1f / %.1f"),
-							*TargetActor->GetName(), DamageAmount, CurrentHp, MaxHp);
-						GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Green, HitMsg);
-					}
-				}
 				return true;
 			}
 		}
@@ -99,11 +76,6 @@ bool UFPSAnimFunctionLibrary::CFLF_ApplyDamageToTarget(
 	AController* InstigatorController = InstigatorActor ? InstigatorActor->GetInstigatorController() : nullptr;
 	UGameplayStatics::ApplyDamage(TargetActor, DamageAmount, InstigatorController, InstigatorActor, nullptr);
 
-	if (GEngine)
-	{
-		FString Msg = FString::Printf(TEXT("🎯 [HIT-Generic] %s 受到 %.1f 原生伤害"), *TargetActor->GetName(), DamageAmount);
-		GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Yellow, Msg);
-	}
 	return true;
 }
 

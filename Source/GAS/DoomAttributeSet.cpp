@@ -59,6 +59,7 @@ void UDoomAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallba
 					DoomChar->bIsDead = true;
 					AActor* Killer = Payload.Instigator ? const_cast<AActor*>(Payload.Instigator.Get()) : nullptr;
 					DoomChar->OnCharacterDeath(Killer);
+					DoomChar->OnCharacterDied.Broadcast(DoomChar, Killer);
 				}
 
 				// 将 State.Dead 挂载到 ASC 上作为物理门锁标签

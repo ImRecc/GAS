@@ -34,11 +34,13 @@ void UEnemyCombatDirector::Initialize(FSubsystemCollectionBase& Collection)
 	}
 
 	ActiveTokens.Empty();
+	EQSLastQueryTimeMap.Empty();
 }
 
 void UEnemyCombatDirector::Deinitialize()
 {
 	ActiveTokens.Empty();
+	EQSLastQueryTimeMap.Empty();
 	Super::Deinitialize();
 }
 
@@ -307,6 +309,114 @@ bool UEnemyCombatDirector::HasAttackToken(AActor* EnemyActor) const
 		}
 	}
 	return false;
+}
+
+// ----------------------------------------------------------------------------
+// 只读探测是否可获得指定类型令牌 (CanRequestAttackToken)
+// ----------------------------------------------------------------------------
+bool UEnemyCombatDirector::CanRequestAttackToken(AActor* EnemyActor, EEnemyTokenType TokenType) const
+{
+	if (TokenType == EEnemyTokenType::None)
+	{
+		return true;
+	}
+
+	UWorld* World = GetWorld();
+	if (!EnemyActor || !World)
+	{
+		return false;
+	}
+
+	const float CurrentTime = World->GetTimeSeconds();
+	int32 LiveCount = 0;
+
+	// 1. 统计当前未失效且未超时的同类型令牌数，并检查自身是否已持有
+	for (const FEnemyTokenRecord& Record : ActiveTokens)
+	{
+		if (!Record.EnemyActor.IsValid())
+		{
+			continue;
+		}
+		if (bEnableTokenTimeout && TokenTimeoutDuration > 0.0f && (CurrentTime - Record.AcquireTimeSeconds > TokenTimeoutDuration))
+		{
+			continue;
+		}
+
+		if (Record.TokenType == TokenType)
+		{
+			if (Record.EnemyActor.Get() == EnemyActor)
+			{
+				return true; // 自身已持有该类型令牌
+			}
+			++LiveCount;
+		}
+	}
+
+	// 2. 令牌池有空位，直接允许探头准备抢牌
+	const int32 MaxCapacity = (TokenType == EEnemyTokenType::Melee) ? MaxMeleeTokens : MaxRangedTokens;
+	if (LiveCount < MaxCapacity)
+	{
+		return true;
+	}
+
+	// 3. 池已满：检查自身是否在玩家视野内且存在视野外的持牌者可供抢占
+	APlayerCameraManager* CamMgr = UGameplayStatics::GetPlayerCameraManager(World, 0);
+	if (!CamMgr || !IsActorInPlayerView(EnemyActor, CamMgr))
+	{
+		return false;
+	}
+
+	for (const FEnemyTokenRecord& Record : ActiveTokens)
+	{
+		if (Record.TokenType == TokenType && Record.EnemyActor.IsValid())
+		{
+			if (bEnableTokenTimeout && TokenTimeoutDuration > 0.0f && (CurrentTime - Record.AcquireTimeSeconds > TokenTimeoutDuration))
+			{
+				continue;
+			}
+			if (!IsActorInPlayerView(Record.EnemyActor.Get(), CamMgr))
+			{
+				return true; // 存在视野外目标可被抢占
+			}
+		}
+	}
+
+	return false;
+}
+
+// ----------------------------------------------------------------------------
+// 跨状态持久化的低频 EQS 冷却锁 (TryConsumeEQSCooldown)
+// ----------------------------------------------------------------------------
+bool UEnemyCombatDirector::TryConsumeEQSCooldown(AActor* BotActor, float CooldownSeconds)
+{
+	UWorld* World = GetWorld();
+	if (!BotActor || !World)
+	{
+		return false;
+	}
+
+	// 顺手清理已销毁 Bot 的失效弱指针，防止字典膨胀
+	for (auto It = EQSLastQueryTimeMap.CreateIterator(); It; ++It)
+	{
+		if (!It.Key().IsValid())
+		{
+			It.RemoveCurrent();
+		}
+	}
+
+	const float CurrentTime = World->GetTimeSeconds();
+	const TWeakObjectPtr<AActor> BotKey(BotActor);
+
+	if (const float* LastTime = EQSLastQueryTimeMap.Find(BotKey))
+	{
+		if (CurrentTime - *LastTime < CooldownSeconds)
+		{
+			return false; // 仍在冷却锁内，跳过本次 EQS 查询
+		}
+	}
+
+	EQSLastQueryTimeMap.Add(BotKey, CurrentTime);
+	return true;
 }
 
 // ----------------------------------------------------------------------------
